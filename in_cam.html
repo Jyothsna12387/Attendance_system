@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IN Attendance</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Entry Camera</h1>
+        <div class="video-container">
+            <video id="video" autoplay></video>
+            <canvas id="overlayCanvas"></canvas>
+        </div>
+        <button id="markButton" data-endpoint="/mark_in">Mark Attendance</button>
+        <div id="status"></div>
+    </div>
+    <script src="in_out_script.js"></script>
+</body>
+</html>

@@ -1,59 +1,111 @@
+import os
 import cv2
+import torch
+import numpy as np
 import sqlite3
+from facenet_pytorch import MTCNN, InceptionResnetV1
+from datetime import datetime
 
+# Initialize FaceNet model
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+mtcnn = MTCNN(image_size=160, margin=0, min_face_size=20, keep_all=False, device=device)
+model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 
-# Initialize video capture and face detection
-video = cv2.VideoCapture(0)
-facedetect = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-
-# Connect to SQLite database (create if not exists)
-conn = sqlite3.connect('data/attendance.db')
+# Connect to database
+conn = sqlite3.connect('data/attendance1.db')
 cursor = conn.cursor()
 
-# Create table if not exists
-cursor.execute('''CREATE TABLE IF NOT EXISTS faces
-                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   name TEXT,
-                   face_data BLOB)''')
+# Input student details
+reg_no = input("Enter Registration Number: ")
+name = input("Enter Student Name: ")
 
-# Initialize variables
-faces_data = []
-i = 0
-name = input("Enter Your Name: ")
+# Check for duplicate reg_no
+cursor.execute("SELECT * FROM faces WHERE reg_no = ?", (reg_no,))
+if cursor.fetchone():
+    print("[ERROR] Registration number already exists.")
+    conn.close()
+    exit()
 
-while True:
-    ret, frame = video.read()
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = facedetect.detectMultiScale(gray, 1.3, 5)
+# Load existing face embeddings
+cursor.execute("SELECT embedding FROM faces")
+existing_embeddings = [np.frombuffer(row[0], dtype=np.float32) for row in cursor.fetchall()]
 
-    for (x, y, w, h) in faces:
-        crop_img = frame[y:y + h, x:x + w, :]
-        resized_img = cv2.resize(crop_img, (50, 50))
+# Start video capture
+cap = cv2.VideoCapture(0)
+print(f"[INFO] Capturing 50 face images for {name}. Please stay in front of the camera.")
 
-        # Convert image to bytes for storage in SQLite
-        resized_img_bytes = resized_img.tobytes()
+captured_embeddings = []
+frame_count = 0
+max_images = 50
+checked_similarity_once = False
+proceed_with_registration = True
 
-        # Store every 10th detected face
-        if len(faces_data) <= 100 and i % 10 == 0:
-            faces_data.append((name, resized_img_bytes))
+while frame_count < max_images:
+    ret, frame = cap.read()
+    if not ret:
+        continue
 
-        i += 1
-        cv2.putText(frame, f"Faces Collected: {len(faces_data)}", (50, 50), cv2.FONT_HERSHEY_COMPLEX, 1, (50, 50, 255),
-                    1)
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (50, 50, 255), 1)
+    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face = mtcnn(img)
 
-    cv2.imshow("Frame", frame)
-    k = cv2.waitKey(1)
+    if face is not None:
+        with torch.no_grad():
+            embedding = model(face.unsqueeze(0).to(device)).cpu().numpy().flatten()
 
-    # Exit loop if 'q' is pressed or 100 faces are collected
-    if k == ord('q') or len(faces_data) == 100:
+        # 🔁 Check for similar face only once
+        if not checked_similarity_once:
+            for emb in existing_embeddings:
+                dist = np.linalg.norm(embedding - emb)
+                if dist < 0.7:
+                    print("[⚠️ WARNING] This face appears similar to a previously registered student.")
+
+                    # ✅ Ask user up to 3 times
+                    attempts = 0
+                    while attempts < 3:
+                        response = input("Proceed with registration? (y/n): ").strip().lower()
+                        if response == 'y':
+                            proceed_with_registration = True
+                            break
+                        elif response == 'n':
+                            proceed_with_registration = False
+                            break
+                        else:
+                            print("[INFO] Please enter 'y' or 'n'.")
+                            attempts += 1
+
+                    if not proceed_with_registration:
+                        print("[❌ CANCELED] Registration aborted by user.")
+                        cap.release()
+                        cv2.destroyAllWindows()
+                        conn.close()
+                        exit()
+                    else:
+                        print("[✅ CONTINUING] Proceeding with registration.")
+                    break  # stop checking after one similar match
+            checked_similarity_once = True
+
+        if proceed_with_registration:
+            captured_embeddings.append(embedding)
+            frame_count += 1
+            print(f"[INFO] Captured image {frame_count}/{max_images}")
+
+    # Show webcam window
+    cv2.imshow("Registration Camera", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Insert faces_data into SQLite database
-cursor.executemany('INSERT INTO faces (name, face_data) VALUES (?, ?)', faces_data)
-conn.commit()
-
-# Close video capture and SQLite connection
-video.release()
+cap.release()
 cv2.destroyAllWindows()
+
+if len(captured_embeddings) < 10:
+    print("[ERROR] Not enough faces captured. Try again.")
+    conn.close()
+    exit()
+
+# Average embeddings and insert into DB
+avg_embedding = np.mean(captured_embeddings, axis=0).astype(np.float32).tobytes()
+cursor.execute("INSERT INTO faces (reg_no, name, embedding) VALUES (?, ?, ?)", (reg_no, name, avg_embedding))
+conn.commit()
 conn.close()
+
+print(f"[✅ SUCCESS] Registered {name} with {frame_count} face samples.")

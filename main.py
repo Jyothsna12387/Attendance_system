@@ -1,167 +1,97 @@
+import os
 import cv2
-import sqlite3
-import numpy as np
-import pandas as pd
-from datetime import datetime, timedelta
-from sklearn.metrics.pairwise import cosine_similarity
-from win32com.client import Dispatch
 import torch
-from facenet_pytorch import InceptionResnetV1
+import numpy as np
+import sqlite3
+from facenet_pytorch import MTCNN, InceptionResnetV1
+from datetime import datetime
+import pyttsx3
+from sklearn.metrics.pairwise import cosine_similarity
 
+# Set device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def speak(str1):
-    speak = Dispatch("SAPI.SpVoice")
-    speak.Speak(str1)
+# Initialize FaceNet models
+mtcnn = MTCNN(image_size=160, margin=0, min_face_size=20, device=device)
+model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 
+# Initialize TTS
+engine = pyttsx3.init()
 
-facenet_model = InceptionResnetV1(pretrained='casia-webface').eval()
+# Load database
+conn = sqlite3.connect('data/attendance1.db')
+c = conn.cursor()
 
+# Load face embeddings from 'faces' table
+c.execute("SELECT name, reg_no, embedding FROM faces")
+data = c.fetchall()
+known_embeddings = []
+known_names = []
+known_regs = []
 
-def get_embedding(face_pixels):
-    """
-    Generate face embedding using FaceNet model
+for name, reg_no, embedding_blob in data:
+    embedding = np.frombuffer(embedding_blob, dtype=np.float32)
+    known_embeddings.append(embedding)
+    known_names.append(name)
+    known_regs.append(reg_no)
 
-    Args:
-        face_pixels (numpy.ndarray): Input face image
+# Convert embeddings to NumPy array
+known_embeddings = np.array(known_embeddings)
 
-    Returns:
-        numpy.ndarray: Face embedding vector
-    """
-    if face_pixels.shape[:2] != (160, 160):
-        face_pixels = cv2.resize(face_pixels, (160, 160))
+# Start webcam
+cap = cv2.VideoCapture(0)
+recognized = False
 
-    face_pixels = face_pixels.astype('float32')
-    mean, std = face_pixels.mean(), face_pixels.std()
-    face_pixels = (face_pixels - mean) / std
-    samples = np.expand_dims(face_pixels, axis=0)
-    samples = torch.tensor(samples).permute(0, 3, 1, 2)
-    with torch.no_grad():
-        yhat = facenet_model(samples)
-    return yhat[0].numpy()
-
-
-video = cv2.VideoCapture(0)
-facedetect = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-
-conn = sqlite3.connect('data/attendance.db')
-cursor = conn.cursor()
-cursor.execute("SELECT name, face_data FROM faces")
-data = cursor.fetchall()
-
-LABELS = []
-EMBEDDINGS = []
-for row in data:
-    name, face_data = row
-    face_np = np.frombuffer(face_data, dtype=np.uint8).reshape(50, 50, 3)
-    embedding = get_embedding(face_np)
-    LABELS.append(name)
-    EMBEDDINGS.append(embedding)
-
-LABELS = np.array(LABELS)
-EMBEDDINGS = np.array(EMBEDDINGS)
-
-
-
-csv_file = "Attendance\Attendance_.csv"
-late_attendance_file = "Attendance\late_attendance_record.csv"
-
-attendance_df = pd.read_csv(csv_file)
-late_attendance_df = pd.read_csv(late_attendance_file)
-
-yesterday_date = (datetime.now() - timedelta(1)).strftime("%d-%m-%Y")
-current_date = datetime.now().strftime("%d-%m-%Y")
-
-absentees_marked = False
+print("[INFO] Showing webcam. It will auto-exit after marking attendance.")
 
 while True:
-    ret, frame = video.read()
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = facedetect.detectMultiScale(gray, 1.3, 5)
-
-    current_time = datetime.now().strftime("%H:%M:%S")
-    current_time_obj = datetime.strptime(current_time, "%H:%M:%S")
-    cutoff_time = datetime.strptime("09:00:00", "%H:%M:%S")
-
-    for (x, y, w, h) in faces:
-        crop_img = frame[y:y + h, x:x + w, :]
-        resized_img = cv2.resize(crop_img, (160, 160))
-        embedding = get_embedding(resized_img)
-
-        similarities = cosine_similarity([embedding], EMBEDDINGS)
-        best_match_idx = np.argmax(similarities)
-        output = LABELS[best_match_idx]
-
-        if similarities[0][best_match_idx] > 0.7:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 1)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (50, 50, 255), 2)
-            cv2.rectangle(frame, (x, y - 60), (x + w, y), (50, 50, 255), -1)
-            cv2.putText(frame, str(output), (x, y - 35), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 1)
-        else:
-            output = "Unknown"
-            cv2.putText(frame, output, (x, y - 35), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 1)
-
-    cv2.putText(frame, current_time, (frame.shape[1] - 200, 50), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
-
-
-    cv2.imshow("Frame", frame)
-
-    k = cv2.waitKey(5)
-    if k == ord('o'):
-        reason = ""
-        late_duration = current_time_obj - cutoff_time
-        marked_attendance = False
-
-        # Determine attendance status
-        if current_time <= "9:05:00":
-            present = 1
-            speak("Attendance Taken..")
-            marked_attendance = True
-        else:
-            present = 1
-            speak("You're late. So you were marked as present but must provide a reason for being late.")
-            reason = input("Please type the reason for being late: ")
-
-        for (x, y, w, h) in faces:
-            crop_img = frame[y:y + h, x:x + w, :]
-            resized_img = cv2.resize(crop_img, (160, 160))
-            embedding = get_embedding(resized_img)
-
-            similarities = cosine_similarity([embedding], EMBEDDINGS)
-            best_match_idx = np.argmax(similarities)
-            output = LABELS[best_match_idx]
-
-            if similarities[0][best_match_idx] > 0.7:
-                if current_date in attendance_df.columns:
-                    attendance_df.loc[attendance_df['names'] == output, current_date] = present
-                    marked_attendance = True
-
-                    if current_time > "9:05:00":
-                        late_attendance_df[current_date] = late_attendance_df[current_date].astype('object')
-                        late_attendance_df.loc[
-                            late_attendance_df['name'] == output, current_date] = f"{reason} ({current_time})"
-                        speak("Your reason taken...")
-                        late_attendance_df.to_csv(late_attendance_file, index=False)
-                else:
-                    print(f"Current date {current_date} not found in the CSV columns.")
-            else:
-                print("Unknown face detected.")
-
-
-        if not marked_attendance:
-            print("No attendance marked due to time constraints or multiple people after 9:05 AM.")
-
-        if not absentees_marked:
-            for index, row in attendance_df.iterrows():
-                if pd.isna(row[yesterday_date]):
-                    attendance_df.at[index, yesterday_date] = 0
-            absentees_marked = True
-
-        attendance_df.to_csv(csv_file, index=False)
-
-    if k == ord('q'):
+    ret, frame = cap.read()
+    if not ret:
         break
 
-# Clean up resources
-video.release()
+    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face = mtcnn(img)
+
+    if face is not None:
+        face_embedding = model(face.unsqueeze(0).to(device)).detach().cpu().numpy()
+
+        # Compare with known embeddings
+        similarities = cosine_similarity(face_embedding, known_embeddings)[0]
+        best_match_idx = np.argmax(similarities)
+        if similarities[best_match_idx] > 0.6:  # threshold
+            name = known_names[best_match_idx]
+            reg_no = known_regs[best_match_idx]
+
+            # Check if already marked
+            c.execute("SELECT * FROM attendance WHERE reg_no = ?", (reg_no,))
+            if c.fetchone():
+                print(f"[INFO] Hello {name}, your attendance has already been marked.")
+                engine.say(f"Hello {name}, your attendance is already marked.")
+                engine.runAndWait()
+                break
+            else:
+                # Mark attendance
+                now = datetime.now()
+                time_str = now.strftime("%H:%M:%S")
+                date_str = now.strftime("%Y-%m-%d")
+
+                c.execute("INSERT INTO attendance (name, reg_no, time, date, status) VALUES (?, ?, ?, ?, ?)",
+                          (name, reg_no, time_str, date_str, 'Present'))
+                conn.commit()
+
+                print(f"[INFO] Hello {name}, your attendance has been marked.")
+                engine.say(f"Hello {name}, your attendance has been marked.")
+                engine.runAndWait()
+                break
+        else:
+            # Unknown face
+            cv2.putText(frame, "Unknown", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    cv2.imshow("Smart Attendance", frame)
+
+    # Remove 'press q to quit' condition, exit only on recognition
+    if cv2.waitKey(1) == 27:  # optional ESC to quit
+        break
+
+cap.release()
 cv2.destroyAllWindows()
 conn.close()

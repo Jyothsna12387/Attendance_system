@@ -1,9 +1,7 @@
-opencv-python
-numpy
-pandas
-torch
-facenet-pytorch
-pywin32
-scikit-learn
-sqlite3
-
+opencv-python==4.8.0.76
+numpy==1.24.4
+pandas==1.5.3
+torch==2.0.1
+facenet-pytorch==2.5.2
+pywin32==306
+scikit-learn==1.3.2
