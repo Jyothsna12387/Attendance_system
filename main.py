@@ -3,269 +3,168 @@ import cv2
 import torch
 import numpy as np
 import sqlite3
-from facenet_pytorch import MTCNN, InceptionResnetV1
+import time
+import sys
+import threading
+import queue
+import winsound  
 from datetime import datetime
-import pyttsx3
+from facenet_pytorch import MTCNN, InceptionResnetV1
 from sklearn.metrics.pairwise import cosine_similarity
 import mediapipe as mp
-import sys
+import pyttsx3
+
+# ================= VOICE SYSTEM =================
+voice_queue = queue.Queue()
+is_speaking = False 
+
+def voice_worker():
+    global is_speaking
+    v_engine = pyttsx3.init()
+    v_engine.setProperty('rate', 145)
+    while True:
+        msg = voice_queue.get()
+        if msg is None: break
+        try:
+            is_speaking = True
+            v_engine.say(msg)
+            v_engine.runAndWait()
+            is_speaking = False
+        except: 
+            is_speaking = False
+        voice_queue.task_done()
+
+threading.Thread(target=voice_worker, daemon=True).start()
+
+def speak(text):
+    voice_queue.put(text)
+
+def play_success_beep():
+    winsound.Beep(1000, 200)
+
+# ================= CONFIG & MODELS =================
+RECOGNITION_THRESHOLD = 0.65
+EAR_THRESHOLD = 0.24 
 
 if len(sys.argv) < 2:
     print("Usage: python main.py IN|OUT")
     sys.exit()
 
 ATTENDANCE_MODE = sys.argv[1].upper()
-
-if ATTENDANCE_MODE not in ["IN", "OUT"]:
-    print("Invalid attendance mode. Use IN or OUT.")
-    sys.exit()
-
-
-# =============================
-# CONFIG
-# =============================
-
-
-# =============================
-# Device & Models
-# =============================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+mtcnn = MTCNN(keep_all=True, device=device) 
+model = InceptionResnetV1(pretrained="vggface2").eval().to(device)
 
-mtcnn = MTCNN(
-    image_size=160,
-    margin=0,
-    min_face_size=20,
-    keep_all=False,
-    device=device
-)
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(refine_landmarks=True, max_num_faces=5)
 
-model = InceptionResnetV1(
-    pretrained="vggface2"
-).eval().to(device)
-
-# =============================
-# Text To Speech
-# =============================
-engine = pyttsx3.init()
-
-# =============================
-# Database
-# =============================
-os.makedirs("data", exist_ok=True)
-conn = sqlite3.connect("data/attendance1.db")
+# ================= DB LOAD =================
+conn = sqlite3.connect("data/attendance1.db", check_same_thread=False)
 c = conn.cursor()
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS attendance (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    reg_no TEXT,
-    name TEXT,
-    status TEXT,
-    date TEXT,
-    time TEXT
-)
-""")
-conn.commit()
-
-# =============================
-# Load Registered Faces
-# =============================
 c.execute("SELECT name, reg_no, embedding FROM faces")
 rows = c.fetchall()
-
-if not rows:
-    print("No registered students found")
-    engine.say("No registered students found")
-    engine.runAndWait()
-    conn.close()
-    exit()
-
-known_names = []
-known_regs = []
-known_embeddings = []
-
+known_names, known_regs, known_embeds = [], [], []
 for n, r, e in rows:
-    known_names.append(n)
-    known_regs.append(r)
-    known_embeddings.append(np.frombuffer(e, dtype=np.float32))
+    known_names.append(n); known_regs.append(r); known_embeds.append(np.frombuffer(e, dtype=np.float32))
+known_embeds = np.array(known_embeds)
 
-known_embeddings = np.array(known_embeddings)
+blink_data = {} 
 
-# =============================
-# MediaPipe FaceMesh (Blink)
-# =============================
-mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(refine_landmarks=True)
+def get_ear(landmarks, h, w):
+    def dist(p1, p2):
+        return np.linalg.norm(np.array([landmarks[p1].x*w, landmarks[p1].y*h]) - 
+                              np.array([landmarks[p2].x*w, landmarks[p2].y*h]))
+    le = (dist(159, 145) + dist(158, 144)) / (2.0 * dist(33, 133))
+    re = (dist(386, 374) + dist(385, 373)) / (2.0 * dist(362, 263))
+    return (le + re) / 2.0
 
-LEFT_EYE = [33, 160, 158, 133, 153, 144]
-RIGHT_EYE = [362, 385, 387, 263, 373, 380]
-
-eye_closed = False
-blink_verified = False
-blink_start_time = None
-
-def eye_aspect_ratio(eye):
-    A = np.linalg.norm(eye[1] - eye[5])
-    B = np.linalg.norm(eye[2] - eye[4])
-    C = np.linalg.norm(eye[0] - eye[3])
-    return (A + B) / (2.0 * C)
-
-# =============================
-# Start Camera
-# =============================
+# ================= CAMERA LOOP =================
 cap = cv2.VideoCapture(0)
-
-if not cap.isOpened():
-    print("Camera not accessible")
-    engine.say("Camera not accessible")
-    engine.runAndWait()
-    conn.close()
-    exit()
-
-print(f"Camera started. Mode: {ATTENDANCE_MODE}. Blink after recognition.")
-start_time = datetime.now()
+print(f"--- System Started: {ATTENDANCE_MODE} Mode ---")
 
 while True:
     ret, frame = cap.read()
-    if not ret:
-        break
+    if not ret: break
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     h, w, _ = frame.shape
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    boxes, _ = mtcnn.detect(rgb)
+    mesh_results = face_mesh.process(rgb)
+    all_lms = mesh_results.multi_face_landmarks if mesh_results.multi_face_landmarks else []
 
-    # ---------------- LIVENESS CHECK ----------------
-    results = face_mesh.process(rgb)
+    faces_in_frame = 0
+    marked_in_frame = 0
 
-    if results.multi_face_landmarks:
-        lm = results.multi_face_landmarks[0].landmark
+    if boxes is not None:
+        faces_in_frame = len(boxes)
+        faces = mtcnn.extract(rgb, boxes, save_path=None)
+        
+        if faces is not None:
+            with torch.no_grad():
+                embeddings = model(faces.to(device)).cpu().numpy()
 
-        left_eye = np.array([(int(lm[i].x * w), int(lm[i].y * h)) for i in LEFT_EYE])
-        right_eye = np.array([(int(lm[i].x * w), int(lm[i].y * h)) for i in RIGHT_EYE])
+            for i, box in enumerate(boxes):
+                sims = cosine_similarity([embeddings[i]], known_embeds)[0]
+                idx = np.argmax(sims)
+                x1, y1, x2, y2 = map(int, box)
+                
+                if sims[idx] > RECOGNITION_THRESHOLD:
+                    name, reg = known_names[idx], known_regs[idx]
+                    if reg not in blink_data:
+                        blink_data[reg] = {"closed": False, "marked": False}
 
-        ear = (eye_aspect_ratio(left_eye) + eye_aspect_ratio(right_eye)) / 2
+                    if blink_data[reg]["marked"]:
+                        marked_in_frame += 1
+                        color = (0, 255, 0)
+                        status_text = "Status: Marked"
+                    else:
+                        color = (0, 255, 255)
+                        status_text = "Blink to Mark"
+                        current_ear = 0.35
+                        for lms in all_lms:
+                            cx, cy = lms.landmark[1].x * w, lms.landmark[1].y * h
+                            if x1 < cx < x2 and y1 < cy < y2:
+                                current_ear = get_ear(lms.landmark, h, w)
+                                break
 
-        if ear < 0.15 and not eye_closed:
-            eye_closed = True
+                        if current_ear < EAR_THRESHOLD:
+                            blink_data[reg]["closed"] = True
+                        elif current_ear > (EAR_THRESHOLD + 0.02) and blink_data[reg]["closed"]:
+                            d, t_now = datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime("%H:%M:%S")
+                            c.execute("INSERT INTO attendance (name, reg_no, status, date, time) VALUES (?,?,?,?,?)",
+                                      (name, reg, ATTENDANCE_MODE, d, t_now))
+                            conn.commit()
+                            
+                            success_msg = f"Hello {name}, your attendance has been marked"
+                            print(f"[SUCCESS] {success_msg}")
+                            threading.Thread(target=play_success_beep, daemon=True).start()
+                            
+                            blink_data[reg]["marked"] = True
+                            speak(success_msg)
+                            blink_data[reg]["closed"] = False
+                            # Mark ayina frame lone color green avvali
+                            color = (0, 255, 0)
+                            status_text = "Status: Marked"
+                            marked_in_frame += 1
 
-        if ear > 0.18 and eye_closed and blink_start_time is not None:
-            blink_verified = True
-            eye_closed = False
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(frame, name, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    cv2.putText(frame, status_text, (x1, y2+25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                else:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                    cv2.putText(frame, "Unknown", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-        cv2.putText(
-            frame,
-            f"EAR: {ear:.2f}",
-            (30, 120),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 255),
-            2
-        )
+    cv2.imshow("Attendance System", frame)
 
-    # Blink window timeout
-    if blink_start_time is not None:
-        if (datetime.now() - blink_start_time).seconds > 3:
-            blink_start_time = None
-            blink_verified = False
+    # ================= AUTO CLOSE LOGIC =================
+    if faces_in_frame > 0 and marked_in_frame == faces_in_frame:
+        # Voice purthiga ayyevaraku wait chesthu frame ni refresh chesthunnam
+        if voice_queue.empty() and not is_speaking:
+            print("\nAttendance and Voice both completed. Closing...")
+            time.sleep(1) 
+            break
 
-    if not blink_verified:
-        cv2.putText(
-            frame,
-            "Blink after face recognition",
-            (30, 80),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (255, 255, 0),
-            2
-        )
-
-    # ---------------- FACE RECOGNITION ----------------
-    face_tensor = mtcnn(rgb)
-
-    if face_tensor is not None:
-        with torch.no_grad():
-            face_embedding = model(
-                face_tensor.unsqueeze(0).to(device)
-            ).cpu().numpy()
-
-        sims = cosine_similarity(face_embedding, known_embeddings)[0]
-        idx = int(np.argmax(sims))
-        score = float(sims[idx])
-
-        if score > 0.65:
-            name = known_names[idx]
-            reg_no = known_regs[idx]
-
-            if blink_start_time is None:
-                blink_start_time = datetime.now()
-                blink_verified = False
-
-            cv2.putText(
-                frame,
-                f"Recognized: {name}",
-                (30, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2
-            )
-
-            if blink_verified:
-                now = datetime.now()
-                d = now.strftime("%Y-%m-%d")
-                t = now.strftime("%H:%M:%S")
-
-                c.execute(
-                    "SELECT * FROM attendance WHERE reg_no=? AND date=? AND status=?",
-                    (reg_no, d, ATTENDANCE_MODE)
-                )
-
-                if c.fetchone():
-                    engine.say(f"{ATTENDANCE_MODE} attendance already marked for {name}")
-                    engine.runAndWait()
-                    break
-
-                c.execute(
-                    "INSERT INTO attendance (name, reg_no, status, date, time) VALUES (?,?,?,?,?)",
-                    (name, reg_no, ATTENDANCE_MODE, d, t)
-                )
-                conn.commit()
-
-                engine.say(f"Hello {name}, your {ATTENDANCE_MODE} attendance has been marked")
-                engine.runAndWait()
-
-                cv2.putText(
-                    frame,
-                    f"{name} - {ATTENDANCE_MODE} Marked",
-                    (30, 160),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0, 255, 0),
-                    2
-                )
-
-                cv2.imshow("Smart Attendance", frame)
-                cv2.waitKey(1000)
-                break
-
-        else:
-            cv2.putText(
-                frame,
-                "Unknown face",
-                (30, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 255),
-                2
-            )
-
-    cv2.imshow("Smart Attendance", frame)
-
-    if cv2.waitKey(1) & 0xFF == 27:
-        break
-
-    if (datetime.now() - start_time).seconds > 120:
-        print("Timeout")
-        break
+    if cv2.waitKey(1) & 0xFF == 27: break
 
 cap.release()
 cv2.destroyAllWindows()

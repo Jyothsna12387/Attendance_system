@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Students | Faculty Portal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary: #1A73E8;
+            --sidebar-bg: #ffffff;
+            --main-bg: #f8f9fa;
+            --text-dark: #202124;
+            --text-light: #5f6368;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+            --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #e3f2fd 100%);
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--main-bg); margin: 0; display: flex; }
+
+        /* --- Sidebar Style --- */
+        .sidebar { width: 260px; height: 100vh; background: var(--sidebar-bg); border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; position: fixed; left: 0; top: 0; z-index: 1000; }
+        .sidebar-header { padding: 25px; font-size: 22px; font-weight: bold; color: var(--primary); display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #f1f3f4; }
+        .sidebar-menu { padding: 20px 0; flex-grow: 1; }
+        .menu-item { padding: 12px 25px; display: flex; align-items: center; gap: 15px; color: var(--text-light); text-decoration: none; font-weight: 500; transition: 0.3s; }
+        .menu-item:hover, .menu-item.active { background: #f1f3f4; color: var(--primary); border-left: 4px solid var(--primary); }
+
+        /* --- Main Content Area --- */
+        .main-content { margin-left: 260px; width: calc(100% - 260px); min-height: 100vh; background: var(--bg-gradient); }
+        .top-header { background: white; padding: 12px 40px; display: flex; justify-content: flex-end; align-items: center; gap: 20px; box-shadow: var(--shadow); position: sticky; top: 0; z-index: 999; }
+
+        /* --- Table Container --- */
+        .content-container { padding: 40px; }
+        .table-card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { text-align: left; padding: 15px; background: #f8f9fa; color: var(--text-light); font-weight: 600; border-bottom: 2px solid #eee; }
+        td { padding: 15px; border-bottom: 1px solid #eee; color: var(--text-dark); font-size: 14px; }
+        tr:hover { background: #fcfcfc; }
+
+        .btn-delete { color: #d93025; background: #fdecea; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .btn-delete:hover { background: #d93025; color: white; }
+
+        .search-bar { width: 100%; max-width: 300px; padding: 10px 15px; border: 1px solid #ddd; border-radius: 8px; outline: none; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="sidebar-header"><i class="bi bi-shield-check"></i> Faculty Portal</div>
+        <div class="sidebar-menu">
+            <a href="/faculty_dashboard" class="menu-item"><i class="bi bi-columns-gap"></i> Dashboard</a>
+            <a href="/register" class="menu-item"><i class="bi bi-person-plus"></i> Student Registration</a>
+            <a href="/secure_in" class="menu-item"><i class="bi bi-camera-video"></i> Start Entry (IN)</a>
+            <a href="/secure_out" class="menu-item"><i class="bi bi-door-open"></i> Start Exit (OUT)</a>
+            <a href="/attendance_reports" class="menu-item"><i class="bi bi-file-earmark-bar-graph"></i> Attendance Reports</a>
+            <a href="/manage_students" class="menu-item active"><i class="bi bi-people"></i> Manage Students</a>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="top-header">
+            <div style="font-weight: 500;"><i class="bi bi-person-circle"></i> Admin Faculty</div>
+            <a href="/logout" style="margin-left:20px; color: #d93025; text-decoration: none; font-weight: 600; font-size: 14px;"><i class="bi bi-power"></i> Logout</a>
+        </div>
+
+        <div class="content-container">
+            <div class="table-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h2 style="margin: 0;">Registered Students</h2>
+                    <input type="text" id="searchInput" class="search-bar" placeholder="Search by name or ID..." onkeyup="filterTable()">
+                </div>
+                
+                <table id="studentTable">
+                    <thead>
+                        <tr>
+                            <th>Reg No</th>
+                            <th>Full Name</th>
+                            <th>Branch</th>
+                            <th>Section</th>
+                            <th>Phone</th>
+                            <th style="text-align: center;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students %}
+                        <tr id="row-{{ student[0] }}">
+                            <td style="font-weight: 600;">{{ student[0] }}</td>
+                            <td>{{ student[1] }}</td>
+                            <td>{{ student[2] }}</td>
+                            <td>{{ student[3] }}</td>
+                            <td>{{ student[4] }}</td>
+                            <td style="text-align: center;">
+                                <button class="btn-delete" onclick="deleteStudent('{{ student[0] }}', '{{ student[1] }}')">
+                                    <i class="bi bi-trash3"></i> Delete
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Delete Functionality
+        async function deleteStudent(regNo, name) {
+            if (confirm(`Are you sure you want to delete ${name} (${regNo})? This cannot be undone.`)) {
+                try {
+                    const response = await fetch('/api/delete_student/' + regNo, { method: 'DELETE' });
+                    const result = await response.json();
+                    if (result.success) {
+                        document.getElementById('row-' + regNo).style.opacity = '0';
+                        setTimeout(() => {
+                            document.getElementById('row-' + regNo).remove();
+                        }, 300);
+                    } else {
+                        alert("Error: " + result.message);
+                    }
+                } catch (e) {
+                    alert("Failed to connect to server.");
+                }
+            }
+        }
+
+        // Search Filter Functionality
+        function filterTable() {
+            let input = document.getElementById("searchInput");
+            let filter = input.value.toUpperCase();
+            let table = document.getElementById("studentTable");
+            let tr = table.getElementsByTagName("tr");
+
+            for (let i = 1; i < tr.length; i++) {
+                let tdId = tr[i].getElementsByTagName("td")[0];
+                let tdName = tr[i].getElementsByTagName("td")[1];
+                if (tdId || tdName) {
+                    let txtValueId = tdId.textContent || tdId.innerText;
+                    let txtValueName = tdName.textContent || tdName.innerText;
+                    if (txtValueId.toUpperCase().indexOf(filter) > -1 || txtValueName.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

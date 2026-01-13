@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login Portal - Attendance System</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #F0F2F5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 400px; text-align: center; }
+        
+        .role-selector { display: flex; background: #E4E7ED; padding: 5px; border-radius: 8px; margin-bottom: 25px; }
+        .role-btn { flex: 1; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; background: none; color: #606266; transition: 0.3s; }
+        .role-btn.active { background: white; color: #1A73E8; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+        #error-card { display: none; background: #FDEDEC; color: #CB4335; padding: 12px; border-radius: 6px; border: 1px solid #F5B7B1; margin-bottom: 20px; font-weight: bold; }
+        
+        .input-group { text-align: left; margin-bottom: 15px; position: relative; }
+        label { font-size: 14px; color: #606266; display: block; margin-bottom: 5px; }
+        input { width: 100%; padding: 12px; border: 1px solid #DCDFE6; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
+        
+        /* Eye Icon Style */
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            top: 38px;
+            cursor: pointer;
+            color: #909399;
+        }
+
+        .btn-login { background: #1A73E8; color: white; border: none; padding: 14px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2 id="login-title">Student Login</h2>
+        
+        <div class="role-selector">
+            <button class="role-btn active" id="studentBtn" onclick="selectRole('student')">Student Login</button>
+            <button class="role-btn" id="facultyBtn" onclick="selectRole('faculty')">Faculty Login</button>
+        </div>
+
+        <div id="error-card"></div>
+        
+        <div class="input-group">
+            <label id="user-label">Registration Number</label>
+            <input type="text" id="username" placeholder="Enter ID" oninput="this.value=this.value.toUpperCase()">
+        </div>
+
+        <div class="input-group">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="Enter Password">
+           <i class="bi bi-eye toggle-password" id="eyeIcon" onclick="togglePasswordVisibility()"></i>        </div>
+
+        <button class="btn-login" onclick="handleLogin()">Login</button>
+    </div>
+
+    <script>
+        let currentRole = 'student';
+
+        // Password చూపించడానికి/దాచడానికి ఫంక్షన్
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            const eyeIcon = document.getElementById('eyeIcon');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                eyeIcon.classList.remove('fa-eye');
+                eyeIcon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                eyeIcon.classList.remove('fa-eye-slash');
+                eyeIcon.classList.add('fa-eye');
+            }
+        }
+
+        function selectRole(role) {
+            currentRole = role;
+            const studentBtn = document.getElementById('studentBtn');
+            const facultyBtn = document.getElementById('facultyBtn');
+            const title = document.getElementById('login-title');
+            const userLabel = document.getElementById('user-label');
+            
+            document.getElementById('error-card').style.display = 'none';
+
+            if (role === 'student') {
+                studentBtn.classList.add('active');
+                facultyBtn.classList.remove('active');
+                title.innerText = "Student Login";
+                userLabel.innerText = "Registration Number";
+            } else {
+                facultyBtn.classList.add('active');
+                studentBtn.classList.remove('active');
+                title.innerText = "Faculty Login";
+                userLabel.innerText = "Faculty Username";
+            }
+        }
+
+        async function handleLogin() {
+            const user_el = document.getElementById('username');
+            const pass_el = document.getElementById('password');
+            const errorCard = document.getElementById('error-card');
+
+            const user = user_el.value.trim();
+            const pass = pass_el.value.trim();
+
+            // 1. Student Validation: Username and Password match అవ్వాలి
+            if (currentRole === 'student' && user !== pass) {
+                errorCard.innerText = "⚠️ Error: Password must match Registration Number!";
+                errorCard.style.display = 'block';
+                
+                // 3 సెకన్ల తర్వాత Error Card తీసేసి Password field క్లియర్ చేయడం
+                setTimeout(() => {
+                    errorCard.style.display = 'none';
+                    pass_el.value = ''; // Password field empty అవుతుంది
+                }, 3000);
+                return;
+            }
+
+            // 2. Backend API Call
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username: user, password: pass, role: currentRole })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                window.location.href = data.redirect;
+            } else {
+                // Backend నుండి వచ్చే తప్పుడు క్రెడెన్షియల్స్ కోసం
+                errorCard.innerText = "⚠️ " + data.message;
+                errorCard.style.display = 'block';
+                
+                setTimeout(() => {
+                    errorCard.style.display = 'none';
+                    pass_el.value = ''; // Password field empty అవుతుంది
+                }, 2000);
+            }
+        }
+    </script>
+</body>
+</html>
