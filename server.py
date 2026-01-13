@@ -632,7 +632,7 @@ def download_report():
     if session.get('role') != 'faculty':
         return redirect(url_for('login_page'))
     
-    # 1. ఫిల్టర్ పారామీటర్లను తీసుకోవడం
+    # 1. ఫిల్టర్స్ తీసుకోవడం
     f_year = request.args.get('year', '1').strip()
     f_branch = request.args.get('branch', '').upper().strip()
     f_section = request.args.get('section', '').upper().strip()
@@ -643,7 +643,7 @@ def download_report():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # 2. రిపోర్ట్ డేటా జనరేట్ చేయడం (ఇది లేకపోవడం వల్లే మీకు ఎర్రర్ వచ్చింది)
+    # 2. డేటా జనరేషన్ (మనం ఇంతకుముందు రాసిన లాజిక్)
     cursor.execute("SELECT reg_no, name FROM faces WHERE year=? AND branch=? AND section=?", (f_year, f_branch, f_section))
     students = cursor.fetchall()
     
@@ -655,42 +655,50 @@ def download_report():
         r_no = reg_no.upper().strip()
         if f_subject.lower() not in db_subject.lower(): continue
         if f_period and f_period not in db_subject: continue
-            
-        if r_no not in attendance_map:
-            attendance_map[r_no] = {'in_time': '-', 'out_time': '-'}
-        
+        if r_no not in attendance_map: attendance_map[r_no] = {'in_time': '-', 'out_time': '-'}
         st_clean = str(status).strip().upper()
         if st_clean == 'IN': attendance_map[r_no]['in_time'] = at_time
         elif st_clean == 'OUT': attendance_map[r_no]['out_time'] = at_time
 
-    # Excel కోసం డేటా లిస్ట్ తయారు చేయడం
     excel_data = []
     for reg_no, name in students:
         r_no = reg_no.upper().strip()
         times = attendance_map.get(r_no, {'in_time': '-', 'out_time': '-'})
-        
         excel_data.append({
             'Roll No': reg_no,
             'Student Name': name,
-            'Subject': f"{f_subject} ({f_period})",
             'Status': "Present" if times['in_time'] != '-' and times['out_time'] != '-' else "Absent",
             'IN Time': times['in_time'],
-            'OUT Time': times['out_time'],
-            'Date': selected_date
+            'OUT Time': times['out_time']
         })
     conn.close()
 
-    # 3. Pandas ద్వారా Excel క్రియేట్ చేయడం
+    # 3. Excel ఫార్మాటింగ్ (Filters + Data)
     df = pd.DataFrame(excel_data)
     output = BytesIO()
+    
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Attendance')
+        # ముందుగా ఫిల్టర్ వివరాలను ఒక చిన్న షీట్ లాగా తయారు చేయడం
+        filter_info = [
+            ['Attendance Report'],
+            ['Date:', selected_date],
+            ['Subject:', f"{f_subject} ({f_period})"],
+            ['Year:', f"{f_year} Year"],
+            ['Branch & Section:', f"{f_branch} - {f_section}"],
+            [] # ఒక ఖాళీ వరుస
+        ]
+        filter_df = pd.DataFrame(filter_info)
+        
+        # ఫిల్టర్లను మొదట రాయడం (Row 0 నుండి)
+        filter_df.to_excel(writer, index=False, header=False, sheet_name='Attendance')
+        
+        # అసలు డేటాను ఫిల్టర్ల కింద (Row 7 నుండి) రాయడం
+        df.to_excel(writer, index=False, startrow=7, sheet_name='Attendance')
     
     output.seek(0)
-    filename = f"Attendance_{f_subject}_{selected_date}.xlsx"
-    
+    filename = f"Report_{f_subject}_{selected_date}.xlsx"
     return send_file(output, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                     )
+                        )
 
 
 if __name__ == "__main__":
