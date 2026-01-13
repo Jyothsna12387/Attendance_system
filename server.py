@@ -469,46 +469,70 @@ def api_delete_student(reg_no):
 # ==========================
 # 6) ATTENDANCE REPORTS
 # ==========================
-
 @app.route('/attendance_reports')
 def attendance_reports():
     if session.get('role') != 'faculty':
         return redirect(url_for('login_page'))
     
-    f_year = request.args.get('year', '1')
-    f_branch = request.args.get('branch', '').upper()
-    f_section = request.args.get('section', '').upper()
+    f_year = request.args.get('year', '1').strip()
+    f_branch = request.args.get('branch', '').upper().strip()
+    f_section = request.args.get('section', '').upper().strip()
     f_subject = request.args.get('subject', '').strip()
-    f_period = request.args.get('period', '').strip() # Kothha Period filter
+    f_period = request.args.get('period', '').strip()
     selected_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     
-    # Subject and Period ni combine chesi vethukuthunnam
-    search_subj = f"{f_subject} ({f_period})" if f_subject and f_period else f"{f_subject}%"
-
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Students list
-    cursor.execute("SELECT reg_no, name, year, branch, section FROM faces WHERE year=? AND branch=? AND section=?", (f_year, f_branch, f_section))
-    filtered_students = cursor.fetchall()
+    cursor.execute("SELECT reg_no, name FROM faces WHERE year=? AND branch=? AND section=?", 
+                   (f_year, f_branch, f_section))
+    students = cursor.fetchall()
     
-    # Attendance matching
-    cursor.execute("SELECT reg_no, time, subject FROM attendance WHERE date=? AND subject LIKE ?", (selected_date, search_subj))
-    attendance_records = {row[0]: {'time': row[1], 'subject': row[2]} for row in cursor.fetchall()}
-    
+    # సబ్జెక్ట్ ఫిల్టర్ లేకుండా ఆ రోజు డేటా అంతా తీసుకోండి
+    cursor.execute("SELECT reg_no, status, time, subject FROM attendance WHERE date = ?", (selected_date,))
+    raw_attendance = cursor.fetchall()
+
+    attendance_map = {}
+    for reg_no, status, at_time, db_subject in raw_attendance:
+        r_no = reg_no.upper().strip()
+        
+        # Subject Match (Case Insensitive)
+        if f_subject.lower() not in db_subject.lower():
+            continue
+            
+        if r_no not in attendance_map:
+            attendance_map[r_no] = {'in_time': '-', 'out_time': '-'}
+        
+        # ఇక్కడ అసలు మ్యాజిక్ ఉంది: ఏ Status ఉన్నా సరే చెక్ చేస్తాం
+        st_clean = str(status).strip().upper()
+        if st_clean == 'IN':
+            attendance_map[r_no]['in_time'] = at_time
+        elif st_clean == 'OUT':
+            attendance_map[r_no]['out_time'] = at_time
+
     final_report = []
     p_count, a_count = 0, 0
     
-    for student in filtered_students:
-        reg_no, name, year, branch, section = student
-        if reg_no in attendance_records:
-            status, time, subj = "Present", attendance_records[reg_no]['time'], attendance_records[reg_no]['subject']
-            p_count += 1
-        else:
-            status, time, subj = "Absent", "-", f"{f_subject} ({f_period})" if f_subject else "N/A"
-            a_count += 1
+    for reg_no, name in students:
+        r_no = reg_no.upper().strip()
+        times = attendance_map.get(r_no, {'in_time': '-', 'out_time': '-'})
         
-        final_report.append({'reg_no': reg_no, 'name': name, 'year': year, 'branch': branch, 'section': section, 'subject': subj, 'status': status, 'time': time})
+        in_t = times['in_time']
+        out_t = times['out_time']
+        
+        # ఇక్కడ చిన్న మార్పు: ఏదో ఒక టైమ్ ఉన్నా Present అని చూపిద్దాం (మీటింగ్ కోసం తాత్కాలికంగా)
+        # మీరు రెండూ ఉండాలనుకుంటే (in_t != '-' and out_t != '-') అని ఉంచండి
+        is_present = (in_t != '-' and out_t != '-')
+        status_val = "Present" if is_present else "Absent"
+        
+        if status_val == "Present": p_count += 1
+        else: a_count += 1
+            
+        final_report.append({
+            'reg_no': reg_no, 'name': name, 'year': f_year, 'branch': f_branch,
+            'section': f_section, 'subject': f"{f_subject} ({f_period})", 
+            'status': status_val, 'in_time': in_t, 'out_time': out_t
+        })
     
     conn.close()
     return render_template('reports.html', report=final_report, present_count=p_count, absent_count=a_count, 
@@ -578,7 +602,19 @@ def get_student_for_edit(reg_no):
         print(f"Server Error: {e}") # ఇది మీ టెర్మినల్ లో కనిపిస్తుంది
         return jsonify({"success": False, "message": str(e)})
 
-
+@app.route('/api/clear_attendance')
+def clear_attendance():
+    if session.get('role') != 'faculty':
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM attendance") # మొత్తం అటెండెన్స్ రికార్డులు క్లియర్ అవుతాయి
+        conn.commit()
+        conn.close()
+        return "Attendance Log Cleared Successfully! Now go back and remark."
+    except Exception as e:
+        return str(e)
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

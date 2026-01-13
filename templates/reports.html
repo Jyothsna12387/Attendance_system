@@ -23,7 +23,6 @@
         .menu-item { padding: 14px 25px; display: flex; align-items: center; gap: 15px; color: var(--text-light); text-decoration: none; font-weight: 500; }
         .menu-item.active { background: #e8f0fe; color: var(--primary); border-left: 5px solid var(--primary); }
 
-        /* Added Header Style */
         .main-container { margin-left: 260px; width: calc(100% - 260px); min-height: 100vh; }
         .top-header { 
             background: white; 
@@ -40,7 +39,7 @@
 
         .content-body { padding: 30px 40px; }
 
-        /* Filter Section - Optimized for Single Line */
+        /* Filter Section */
         .selection-container { 
             display: flex; 
             justify-content: space-between; 
@@ -51,42 +50,20 @@
             box-shadow: var(--shadow);
             margin-bottom: 25px;
             gap: 10px;
-            flex-wrap: nowrap; /* Prevents wrapping to new line */
+            flex-wrap: nowrap;
         }
         
-        .filter-inputs { 
-            display: flex; 
-            gap: 8px; 
-            flex-grow: 1; 
-            align-items: flex-end;
-        }
-
+        .filter-inputs { display: flex; gap: 8px; flex-grow: 1; align-items: flex-end; }
         .input-card { display: flex; flex-direction: column; flex: 1; min-width: 0; }
         .input-card label { font-size: 11px; font-weight: 700; color: var(--text-light); margin-bottom: 4px; text-transform: uppercase; }
         .input-card input, .input-card select { 
-            padding: 8px 10px; 
-            border: 1px solid #dadce0; 
-            border-radius: 6px; 
-            font-size: 13px; 
-            width: 100%;
-            box-sizing: border-box;
-            background-color: #fff;
+            padding: 8px 10px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; width: 100%; box-sizing: border-box; background-color: #fff;
         }
 
         .btn-generate { 
-            background: var(--primary); 
-            color: white; 
-            border: none; 
-            padding: 0 20px; 
-            border-radius: 8px; 
-            font-weight: 600; 
-            cursor: pointer; 
-            white-space: nowrap; /* Keeps text in one line */
-            display: flex; 
-            align-items: center; 
-            gap: 8px;
-            height: 38px; /* Matches input height */
-            transition: 0.3s;
+            background: var(--primary); color: white; border: none; padding: 0 20px; border-radius: 8px; 
+            font-weight: 600; cursor: pointer; white-space: nowrap; display: flex; align-items: center; 
+            gap: 8px; height: 38px; transition: 0.3s;
         }
         .btn-generate:hover { background: #1557b0; }
 
@@ -94,8 +71,7 @@
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
         .stat-card { 
             background: white; padding: 20px; border-radius: 15px; box-shadow: var(--shadow); 
-            display: flex; align-items: center; gap: 20px; cursor: pointer; transition: 0.3s;
-            border: 2px solid transparent;
+            display: flex; align-items: center; gap: 20px; cursor: pointer; transition: 0.3s; border: 2px solid transparent;
         }
         .stat-card:hover { transform: translateY(-3px); border-color: var(--primary); }
         .stat-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
@@ -111,6 +87,11 @@
         .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .badge-present { background: #e6f4ea; color: #1e8e3e; }
         .badge-absent { background: #fce8e6; color: #d93025; }
+
+        /* IN and OUT Time Styling */
+        .time-cell { font-family: 'Courier New', Courier, monospace; font-weight: 600; font-size: 13px; }
+        .in-time { color: #1e8e3e; }
+        .out-time { color: #d93025; }
 
         .no-data { padding: 40px; text-align: center; color: var(--text-light); }
     </style>
@@ -143,7 +124,7 @@
 
         <div class="content-body">
             <h2 style="margin: 0 0 5px 0;">Attendance Reports</h2>
-            <p style="color: var(--text-light); margin-bottom: 25px; font-size: 14px;">Filter details to view student presence list.</p>
+            <p style="color: var(--text-light); margin-bottom: 25px; font-size: 14px;">Both IN and OUT records are required for a 'Present' status.</p>
 
             <form action="/attendance_reports" method="get">
                 <div class="selection-container">
@@ -177,10 +158,10 @@
                             <label>Period</label>
                             <select name="period">
                                 <option value="">All</option>
-                                <option value="P1-P2" {% if f_period == 'P1-P2' %}selected{% endif %}>1 & 2</option>
-                                <option value="P3-P4" {% if f_period == 'P3-P4' %}selected{% endif %}>3 & 4</option>
-                                <option value="P5-P6" {% if f_period == 'P5-P6' %}selected{% endif %}>5 & 6</option>
-                                <option value="P7-P8" {% if f_period == 'P7-P8' %}selected{% endif %}>7 & 8</option>
+                                <option value="1 & 2" {% if f_period == '1 & 2' %}selected{% endif %}>1 & 2</option>
+                                <option value="3 & 4" {% if f_period == '3 & 4' %}selected{% endif %}>3 & 4</option>
+                                <option value="5 & 6" {% if f_period == '5 & 6' %}selected{% endif %}>5 & 6</option>
+                                <option value="7 & 8" {% if f_period == '7 & 8' %}selected{% endif %}>7 & 8</option>
                             </select>
                         </div>
                     </div>
@@ -195,14 +176,14 @@
                     <div class="stat-icon" style="background: #e6f4ea; color: #1e8e3e;"><i class="bi bi-person-check"></i></div>
                     <div>
                         <div class="stat-value">{{ present_count }}</div>
-                        <div class="stat-label">Total Present (Click to view)</div>
+                        <div class="stat-label">Total Present (IN + OUT)</div>
                     </div>
                 </div>
                 <div class="stat-card" onclick="filterByStatus('Absent')">
                     <div class="stat-icon" style="background: #fce8e6; color: #d93025;"><i class="bi bi-person-x"></i></div>
                     <div>
                         <div class="stat-value">{{ absent_count }}</div>
-                        <div class="stat-label">Total Absent (Click to view)</div>
+                        <div class="stat-label">Total Absent</div>
                     </div>
                 </div>
             </div>
@@ -213,36 +194,32 @@
                         <tr>
                             <th>Roll No</th>
                             <th>Student Name</th>
-                            <th>Year</th>
-                            <th>Branch</th>
-                            <th>Section</th>
-                            <th>Subject</th>
+                            <th>Subject (Period)</th>
                             <th>Status</th>
-                            <th>Time</th>
+                            <th>IN Time</th>
+                            <th>OUT Time</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for row in report %}
-                        <tr>
-                            <td>{{ row.reg_no }}</td>
-                            <td style="font-weight: 600;">{{ row.name }}</td>
-                            <td>{{ row.year }} Year</td>
-                            <td>{{ row.branch }}</td>
-                            <td>{{ row.section }}</td>
-                            <td>{{ row.subject }}</td>
-                            <td>
-                                <span class="badge {% if row.status == 'Present' %}badge-present{% else %}badge-absent{% endif %}">
-                                    {{ row.status }}
-                                </span>
-                            </td>
-                            <td>{{ row.time }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="8" class="no-data">No student records found.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
+    {% for row in report %}
+    <tr>
+        <td>{{ row.reg_no }}</td>
+        <td style="font-weight: 600;">{{ row.name }}</td>
+        <td>{{ row.subject }}</td>
+        <td>
+            <span class="badge {% if row.status == 'Present' %}badge-present{% else %}badge-absent{% endif %}">
+                {{ row.status }}
+            </span>
+        </td>
+        <td class="time-cell in-time">{{ row.in_time }}</td>
+        <td class="time-cell out-time">{{ row.out_time }}</td>
+    </tr>
+    {% else %}
+    <tr>
+        <td colspan="6" class="no-data">No student records found for the selected filters.</td>
+    </tr>
+    {% endfor %}
+</tbody>
                 </table>
             </div>
             
