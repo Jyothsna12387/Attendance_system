@@ -367,16 +367,15 @@ def student_login():
 # ==========================
 # 8) ATTENDANCE MARKING LOGIC
 # ==========================
-
 @app.route('/api/mark_attendance', methods=['POST'])
 def mark_attendance():
     try:
         data = request.json
-        mode = data.get('mode')
+        mode = data.get('mode', '').upper().strip() 
         subj_name = data.get('subject', 'General').strip()
-        period = data.get('period', 'P1-P2') # Dropdown nundi vacchina period
+        period = data.get('period', '').strip()
         
-        # Subject and Period ni combine chesthunnam (e.g., "Python (P1-P2)")
+        # Subject + Period combination (e.g., "Python (1 & 2)")
         subj = f"{subj_name} ({period})" 
         
         f_year = data.get('year')
@@ -386,6 +385,7 @@ def mark_attendance():
         if mode == 'IN' and not attendance_status["is_in_active"]:
             return jsonify({"success": False, "message": "Session not active"})
 
+        # Image Processing
         img_base64 = data.get('image').split(',')[1]
         img_bytes = base64.b64decode(img_base64)
         nparr = np.frombuffer(img_bytes, np.uint8)
@@ -403,37 +403,82 @@ def mark_attendance():
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
                 
-                cursor.execute("SELECT reg_no, name, branch, section, year, embedding FROM faces WHERE year=? AND branch=? AND section=?", 
-                               (f_year, f_branch, f_section))
+                # అందరి స్టూడెంట్స్ డేటా తీసుకోవడం (Wrong Class గుర్తించడానికి)
+                cursor.execute("SELECT reg_no, name, branch, section, year, embedding FROM faces")
                 rows = cursor.fetchall()
                 
                 for reg_no, name, branch, section, year, emb_blob in rows:
                     ex_emb = np.frombuffer(emb_blob, dtype=np.float32)
                     dist = np.linalg.norm(new_emb - ex_emb)
                     
-                    if dist < 0.6:
-                        date_str = datetime.now().strftime("%Y-%m-%d")
+                    if dist < 0.6: # Face Recognized
                         
-                        # Check duplicate using Subject + Period combination
+                        # 1. WRONG CLASS VALIDATION
+                        if str(branch).strip() != str(f_branch).strip() or str(section).strip() != str(f_section).strip():
+                            conn.close()
+                            return jsonify({
+                                "success": False, 
+                                "message": f"Wrong Class! You belong to {branch}-{section}"
+                            })
+
+                        date_str = datetime.now().strftime("%Y-%m-%d")
+                        curr_time = datetime.now()
+
+                        # 2. DUPLICATE CHECK
                         cursor.execute("SELECT id FROM attendance WHERE reg_no=? AND date=? AND status=? AND subject=?", 
                                        (reg_no, date_str, mode, subj))
                         if cursor.fetchone():
                             conn.close()
-                            return jsonify({"success": False, "message": f"Already Marked for {subj}"})
+                            return jsonify({"success": False, "message": f"Already Marked {mode} for {subj}"})
 
-                        time_str = datetime.now().strftime("%H:%M:%S")
+                        # 3. OUT MODE SECURITY (IN Check & Time Gap)
+                        if mode == 'OUT':
+                            # ఇక్కడ క్వెరీని 'LIKE' ఉపయోగించి మరింత ఫ్లెక్సిబుల్ గా మార్చాను
+                            cursor.execute("""
+                                SELECT time FROM attendance 
+                                WHERE reg_no=? AND date=? AND status='IN' AND subject LIKE ?
+                            """, (reg_no, date_str, f"%{subj_name}%"))
+                            
+                            in_record = cursor.fetchone()
+
+                            if not in_record:
+                                conn.close()
+                                return jsonify({
+                                    "success": False, 
+                                    "message": f"IN record not found for {subj_name}!"
+                                })
+
+                            # Time Gap Check (60 Mins)
+                            in_time_dt = datetime.strptime(in_record[0], "%H:%M:%S")
+                            in_time_full = datetime.combine(curr_time.date(), in_time_dt.time())
+                            time_diff = (curr_time - in_time_full).seconds / 60
+
+                            if time_diff < 1:
+                                conn.close()
+                                remaining = int(60 - time_diff)
+                                return jsonify({
+                                    "success": False, 
+                                    "message": f"Too Early! Wait {remaining} mins."
+                                })
+
+                        # 4. INSERT ATTENDANCE
+                        time_str = curr_time.strftime("%H:%M:%S")
                         cursor.execute("""
                             INSERT INTO attendance (reg_no, name, branch, section, year, subject, date, time, status) 
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (reg_no, name, branch, section, year, subj, date_str, time_str, mode))
+                        
                         conn.commit()
                         conn.close()
-                        return jsonify({"success": True, "name": name, "reg_no": reg_no})
+                        return jsonify({"success": True, "name": name, "reg_no": reg_no, "message": f"{mode} Successful!"})
                 
                 conn.close()
-                return jsonify({"success": False, "message": "Face not recognized"})
+                return jsonify({"success": False, "message": "Face not recognized / Unregistered"})
+        
         return jsonify({"success": False, "message": "No face detected"})
+
     except Exception as e:
+        print(f"Server Error: {e}")
         return jsonify({"success": False, "message": str(e)})
 
 # ==========================
@@ -496,6 +541,7 @@ def attendance_reports():
 
     attendance_map = {}
     for reg_no, status, at_time, db_subject in raw_attendance:
+        if reg_no is None: continue # ఒకవేళ reg_no ఖాళీగా ఉంటే వదిలేయమని చెప్పడం
         r_no = reg_no.upper().strip()
         
         # Subject Match (Case Insensitive)
