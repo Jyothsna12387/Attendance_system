@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gate Exit (OUT) | Faculty Portal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary: #1A73E8;
+            --sidebar-bg: #ffffff;
+            --main-bg: #f8f9fa;
+            --text-dark: #202124;
+            --text-light: #5f6368;
+            --shadow: 0 4px 12px rgba(0,0,0,0.08);
+            --exit-red: #d93025;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--main-bg); margin: 0; display: flex; overflow-x: hidden; }
+
+        /* Sidebar */
+        .sidebar { width: 260px; height: 100vh; background: var(--sidebar-bg); border-right: 1px solid #e0e0e0; position: fixed; left: 0; top: 0; z-index: 1000; }
+        .sidebar-header { padding: 25px; font-size: 22px; font-weight: bold; color: var(--primary); border-bottom: 1px solid #f1f3f4; }
+        .menu-item { padding: 14px 25px; display: flex; align-items: center; gap: 15px; color: var(--text-light); text-decoration: none; font-weight: 500; transition: 0.3s; }
+        .menu-item.active { background: #fee8e7; color: var(--exit-red); border-left: 5px solid var(--exit-red); }
+
+        .main-container { margin-left: 260px; width: calc(100% - 260px); min-height: 100vh; }
+        .top-header { background: white; padding: 12px 40px; display: flex; justify-content: flex-end; align-items: center; gap: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+        .content-body { padding: 30px 40px; }
+        .page-title { font-size: 26px; font-weight: bold; color: var(--text-dark); margin: 0; }
+        .page-tagline { color: var(--text-light); font-size: 15px; margin: 8px 0 25px; }
+
+        /* Selection Container - Matching Secure IN Style */
+        .selection-container { display: flex; gap: 12px; margin-bottom: 25px; flex-wrap: wrap; }
+        .input-card {
+            background: #fff; border: 1px solid #dadce0; border-radius: 10px;
+            padding: 10px 15px; display: flex; flex-direction: column; flex: 1; min-width: 120px;
+            box-shadow: var(--shadow);
+        }
+        .input-card label { font-size: 13px; font-weight: 600; color: #444; margin-bottom: 4px; }
+        .input-card input, .input-card select {
+            border: none; outline: none; font-size: 15px; font-weight: 500; background: transparent; color: var(--text-dark); width: 100%;
+        }
+
+        /* Camera Grid */
+        .attendance-grid { display: flex; gap: 25px; align-items: stretch; }
+        .camera-box { flex: 2; background: white; border-radius: 20px; box-shadow: var(--shadow); padding: 20px; text-align: center; position: relative; }
+        
+        video { width: 100%; height: 380px; object-fit: cover; border-radius: 12px; background: #000; transform: scaleX(-1); border: 1px solid #f1f3f4; }
+
+        #scanning-indicator {
+            position: absolute; top: 35px; left: 35px; background: var(--exit-red); color: white; padding: 5px 12px;
+            border-radius: 20px; font-size: 11px; font-weight: bold; display: none; z-index: 10;
+        }
+
+        /* Button Box */
+        .controls { margin-top: 15px; }
+        .btn { padding: 12px 40px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; transition: 0.3s; }
+        .btn-start { background: var(--exit-red); color: white; }
+        .btn-stop { background: #555; color: white; display: none; }
+
+        /* Log Box */
+        .log-box { flex: 1; background: white; border-radius: 20px; box-shadow: var(--shadow); padding: 25px; display: flex; flex-direction: column; max-height: 520px; }
+        .log-box h4 { margin: 0 0 15px; font-size: 17px; color: var(--text-dark); border-bottom: 1px solid #f1f3f4; padding-bottom: 10px; }
+        #log-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
+        #log-list li { padding: 10px 0; border-bottom: 1px solid #f8f9fa; font-size: 13px; display: flex; justify-content: space-between; }
+        
+        /* Scan Popup */
+        #scan-popup {
+            position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%);
+            padding: 15px 30px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 9999; display: none; font-weight: bold; font-size: 17px; border-top: 5px solid;
+            min-width: 250px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="sidebar-header">Faculty Portal</div>
+        <div class="sidebar-menu">
+            <a href="/faculty_dashboard" class="menu-item"><i class="bi bi-columns-gap"></i> Dashboard</a>
+            <a href="/register" class="menu-item"><i class="bi bi-person-plus"></i> Student Registration</a>
+            <a href="/edit_student_search" class="menu-item"><i class="bi bi-pencil-square"></i> Edit Student Profile</a>
+            <a href="/secure_in" class="menu-item"><i class="bi bi-camera-video"></i> Start Entry (IN)</a>
+            <a href="/secure_out" class="menu-item active"><i class="bi bi-door-open"></i> Start Exit (OUT)</a>
+            <a href="/attendance_reports" class="menu-item"><i class="bi bi-file-earmark-bar-graph"></i> Attendance Reports</a>
+            <a href="/manage_students" class="menu-item"><i class="bi bi-people"></i> Manage Students</a>
+            <a href="/logout" class="menu-item" style="margin-top: auto; color: #d93025;"><i class="bi bi-power"></i> Logout</a>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="top-header">
+            <div style="font-weight: 500;"><i class="bi bi-person-circle"></i> Admin Faculty</div>
+            <a href="/logout" style="margin-left:15px; color: var(--exit-red); text-decoration: none; font-weight: 600;">Logout</a>
+        </div>
+
+        <div class="content-body">
+            <h2 class="page-title">Gate Exit (OUT) Monitoring</h2>
+            <p class="page-tagline">Start the session to allow students to mark their exit attendance.</p>
+
+            <div class="selection-container">
+                <div class="input-card"><label>Year</label><select id="f_year"><option value="1">1st Year</option><option value="2">2nd Year</option><option value="3">3rd Year</option><option value="4">4th Year</option></select></div>
+                <div class="input-card"><label>Branch</label><input type="text" id="f_branch" placeholder="EX: CSE" style="text-transform: uppercase;"></div>
+                <div class="input-card"><label>Section</label><input type="text" id="f_section" placeholder="EX: A" style="text-transform: uppercase;"></div>
+                <div class="input-card" style="flex: 1.5;"><label>Subject / Period Name</label><input type="text" id="subjectInput" placeholder="Enter Subject Name"></div>
+                <div class="input-card">
+                    <label>Period</label>
+                    <select id="periodInput">
+                        <option value="1 & 2">1 & 2</option>
+                        <option value="3 & 4">3 & 4</option>
+                        <option value="5 & 6">5 & 6</option>
+                        <option value="7 & 8">7 & 8</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="attendance-grid">
+                <div class="camera-box">
+                    <div id="scanning-indicator">EXIT SCANNING ACTIVE</div>
+                    <div id="scan-popup"></div>
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="canvas" style="display:none;"></canvas>
+
+                    <div class="controls">
+                        <button id="startBtn" class="btn btn-start" onclick="startExitScan()">Start OUT Scanning</button>
+                        <button id="stopBtn" class="btn btn-stop" onclick="stopExitScan()">Stop Scanning</button>
+                    </div>
+                </div>
+
+                <div class="log-box">
+                    <h4>Exit Activity</h4>
+                    <ul id="log-list"><li style="color: #999; text-align: center;">Waiting to start...</li></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let stream = null, isScanning = false, scanInterval = null;
+
+        async function startExitScan() {
+            const subject = document.getElementById('subjectInput').value.trim();
+            if (!subject) { alert("Please enter Subject Name!"); return; }
+
+            try {
+                await fetch('/api/toggle_attendance/OUT/start');
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+                document.getElementById('webcam').srcObject = stream;
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'inline-flex';
+                document.getElementById('scanning-indicator').style.display = 'block';
+                isScanning = true;
+                scanInterval = setInterval(processExit, 1500);
+                addLogEntry(`Session Started: ${subject}`, 'info');
+            } catch (err) { alert("Camera Error: " + err); }
+        }
+
+        async function processExit() {
+            if (!isScanning) return;
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('canvas');
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            const data = {
+                image: canvas.toDataURL('image/jpeg', 0.8),
+                mode: 'OUT',
+                subject: document.getElementById('subjectInput').value,
+                period: document.getElementById('periodInput').value,
+                year: document.getElementById('f_year').value,
+                branch: document.getElementById('f_branch').value.toUpperCase(),
+                section: document.getElementById('f_section').value.toUpperCase()
+            };
+
+            try {
+                const response = await fetch('/api/mark_attendance', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showPopup(`Exit Marked: ${result.name}`, '#d93025');
+                    addLogEntry(`OUT: ${result.name}`, 'out');
+                } else {
+                    if (result.message !== "No face detected") {
+                        showPopup(result.message, '#d93025');
+                        addLogEntry(result.message, 'error');
+                    }
+                }
+            } catch (err) { console.error("API Error:", err); }
+        }
+
+        function showPopup(msg, color) {
+            const p = document.getElementById('scan-popup');
+            p.innerText = msg;
+            p.style.color = color;
+            p.style.borderTopColor = color;
+            p.style.display = 'block';
+            setTimeout(() => { p.style.display = 'none'; }, 3000);
+        }
+
+        function addLogEntry(msg, type) {
+            const list = document.getElementById('log-list');
+            if (list.innerHTML.includes("Waiting") || list.innerHTML.includes("No activity")) list.innerHTML = "";
+            const li = document.createElement('li');
+            li.innerHTML = `<span>${msg}</span> <span style="color:#999; font-size:11px;">${new Date().toLocaleTimeString()}</span>`;
+            
+            if (type === 'out' || type === 'error') {
+                li.style.color = '#d93025';
+                li.style.fontWeight = 'bold';
+            }
+            list.prepend(li);
+        }
+
+        async function stopExitScan() {
+            isScanning = false; clearInterval(scanInterval);
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            await fetch('/api/toggle_attendance/OUT/stop');
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
