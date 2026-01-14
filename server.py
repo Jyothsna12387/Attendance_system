@@ -3,6 +3,7 @@ import subprocess
 import sys
 import os
 import base64
+import mediapipe as mp
 import cv2
 import numpy as np
 import torch
@@ -15,6 +16,28 @@ from io import BytesIO
 
 app = Flask(__name__)
 app.secret_key = "attendance_secret_key"
+
+# Mediapipe Face Mesh ని సిద్ధం చేయడం
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=10, refine_landmarks=True)
+
+def calculate_ear(landmarks, eye_indices):
+    """కంటి పాయింట్ల ఆధారంగా EAR లెక్కించే లాజిక్"""
+    p1 = landmarks[eye_indices[0]]
+    p2 = landmarks[eye_indices[1]]
+    p3 = landmarks[eye_indices[2]]
+    p4 = landmarks[eye_indices[3]]
+    p5 = landmarks[eye_indices[4]]
+    p6 = landmarks[eye_indices[5]]
+    
+    # EAR ఫార్ములా
+    vertical_1 = np.linalg.norm(np.array([p2.x, p2.y]) - np.array([p6.x, p6.y]))
+    vertical_2 = np.linalg.norm(np.array([p3.x, p3.y]) - np.array([p5.x, p5.y]))
+    horizontal = np.linalg.norm(np.array([p1.x, p1.y]) - np.array([p4.x, p4.y]))
+    
+    # ఇక్కడ ear_value ని డిఫైన్ చేసి రిటర్న్ చేస్తున్నాం
+    ear_value = (vertical_1 + vertical_2) / (2.0 * horizontal)
+    return ear_value
 
 # ==========================
 # 1) CONFIG & MODELS
@@ -29,8 +52,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 mtcnn = MTCNN(
     image_size=160, 
     margin=14, 
-    keep_all=False, 
-    thresholds=[0.35, 0.5, 0.5], 
+    keep_all=True, 
+    thresholds=[0.7, 0.8, 0.8], 
     device=device
 )
 model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
@@ -374,111 +397,92 @@ def mark_attendance():
         mode = data.get('mode', '').upper().strip() 
         subj_name = data.get('subject', 'General').strip()
         period = data.get('period', '').strip()
+        subj = f"{subj_name} ({period})"
         
-        # Subject + Period combination (e.g., "Python (1 & 2)")
-        subj = f"{subj_name} ({period})" 
-        
-        f_year = data.get('year')
-        f_branch = data.get('branch')
-        f_section = data.get('section')
+        f_year, f_branch, f_section = data.get('year'), data.get('branch'), data.get('section')
 
-        if mode == 'IN' and not attendance_status["is_in_active"]:
-            return jsonify({"success": False, "message": "Session not active"})
-
-        # Image Processing
-        img_base64 = data.get('image').split(',')[1]
-        img_bytes = base64.b64decode(img_base64)
+        # 1. Image Processing
+        img_bytes = base64.b64decode(data.get('image').split(',')[1])
         nparr = np.frombuffer(img_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(rgb).convert('RGB')
+        pil_img = Image.fromarray(rgb)
 
+        # 2. Blink Detection
+        mesh_results = face_mesh.process(rgb)
+        blink_map = []
+        if mesh_results.multi_face_landmarks:
+            for fl in mesh_results.multi_face_landmarks:
+                ear = (fl.landmark[145].y - fl.landmark[159].y + fl.landmark[374].y - fl.landmark[386].y) / 2
+                blink_map.append(ear < 0.02)
+
+        # 3. Recognition
         boxes, _ = mtcnn.detect(pil_img)
+        final_results = []
+
         if boxes is not None:
-            face_tensor = mtcnn(pil_img)
-            if face_tensor is not None:
-                with torch.no_grad():
-                    new_emb = model(face_tensor.unsqueeze(0).to(device)).cpu().numpy().flatten()
+            face_tensors = mtcnn(pil_img)
+            if face_tensors is not None:
+                if len(face_tensors.shape) == 3: face_tensors = face_tensors.unsqueeze(0)
                 
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
-                
-                # అందరి స్టూడెంట్స్ డేటా తీసుకోవడం (Wrong Class గుర్తించడానికి)
                 cursor.execute("SELECT reg_no, name, branch, section, year, embedding FROM faces")
-                rows = cursor.fetchall()
-                
-                for reg_no, name, branch, section, year, emb_blob in rows:
-                    ex_emb = np.frombuffer(emb_blob, dtype=np.float32)
-                    dist = np.linalg.norm(new_emb - ex_emb)
-                    
-                    if dist < 0.6: # Face Recognized
+                all_students = cursor.fetchall()
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                curr_time = datetime.now()
+
+                with torch.no_grad():
+                    for i, box in enumerate(boxes):
+                        new_emb = model(face_tensors[i].unsqueeze(0).to(device)).detach().cpu().numpy().flatten()
+                        res = {"box": box.tolist(), "reg_no": "Unknown", "status": "Not Registered", "color": "red"}
                         
-                        # 1. WRONG CLASS VALIDATION
-                        if str(branch).strip() != str(f_branch).strip() or str(section).strip() != str(f_section).strip():
-                            conn.close()
-                            return jsonify({
-                                "success": False, 
-                                "message": f"Wrong Class! You belong to {branch}-{section}"
-                            })
+                        for reg_no, name, br, sec, yr, emb_blob in all_students:
+                            dist = np.linalg.norm(new_emb - np.frombuffer(emb_blob, dtype=np.float32))
+                            if dist < 0.6:
+                                res["reg_no"] = reg_no
+                                
+                                # A. Wrong Class Check
+                                if (str(br).strip() != str(f_branch).strip() or 
+                                    str(sec).strip() != str(f_section).strip() or 
+                                    str(yr).strip() != str(f_year).strip()):
+                                    res["status"], res["color"] = f"Wrong Class! Use {yr}-{br}-{sec}", "orange"
+                                    break
 
-                        date_str = datetime.now().strftime("%Y-%m-%d")
-                        curr_time = datetime.now()
+                                # B. ALREADY MARKED CHECK (దీన్ని Blink కంటే ముందే పెట్టాను)
+                                cursor.execute("SELECT time FROM attendance WHERE reg_no=? AND date=? AND subject=? AND status=?", (reg_no, date_str, subj, mode))
+                                already_done = cursor.fetchone()
+                                if already_done:
+                                    res["status"], res["color"] = f"Already {mode} at {already_done[0]}", "green"
+                                    break
 
-                        # 2. DUPLICATE CHECK
-                        cursor.execute("SELECT id FROM attendance WHERE reg_no=? AND date=? AND status=? AND subject=?", 
-                                       (reg_no, date_str, mode, subj))
-                        if cursor.fetchone():
-                            conn.close()
-                            return jsonify({"success": False, "message": f"Already Marked {mode} for {subj}"})
+                                # C. BLINK CHECK (ఆల్రెడీ మార్క్ అవ్వకపోతేనే బ్లింక్ చేయమని అడుగుతుంది)
+                                if i >= len(blink_map) or not blink_map[i]:
+                                    res["status"], res["color"] = f"Blink to {mode}", "yellow"
+                                    break
 
-                        # 3. OUT MODE SECURITY (IN Check & Time Gap)
-                        if mode == 'OUT':
-                            # ఇక్కడ క్వెరీని 'LIKE' ఉపయోగించి మరింత ఫ్లెక్సిబుల్ గా మార్చాను
-                            cursor.execute("""
-                                SELECT time FROM attendance 
-                                WHERE reg_no=? AND date=? AND status='IN' AND subject LIKE ?
-                            """, (reg_no, date_str, f"%{subj_name}%"))
-                            
-                            in_record = cursor.fetchone()
-
-                            if not in_record:
-                                conn.close()
-                                return jsonify({
-                                    "success": False, 
-                                    "message": f"IN record not found for {subj_name}!"
-                                })
-
-                            # Time Gap Check (60 Mins)
-                            in_time_dt = datetime.strptime(in_record[0], "%H:%M:%S")
-                            in_time_full = datetime.combine(curr_time.date(), in_time_dt.time())
-                            time_diff = (curr_time - in_time_full).seconds / 60
-
-                            if time_diff < 1:
-                                conn.close()
-                                remaining = int(60 - time_diff)
-                                return jsonify({
-                                    "success": False, 
-                                    "message": f"Too Early! Wait {remaining} mins."
-                                })
-
-                        # 4. INSERT ATTENDANCE
-                        time_str = curr_time.strftime("%H:%M:%S")
-                        cursor.execute("""
-                            INSERT INTO attendance (reg_no, name, branch, section, year, subject, date, time, status) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (reg_no, name, branch, section, year, subj, date_str, time_str, mode))
-                        
-                        conn.commit()
-                        conn.close()
-                        return jsonify({"success": True, "name": name, "reg_no": reg_no, "message": f"{mode} Successful!"})
-                
+                                # D. SAVE ATTENDANCE (Blink చేసినప్పుడు మాత్రమే ఇక్కడికి వస్తుంది)
+                                if mode == 'OUT':
+                                    cursor.execute("SELECT time FROM attendance WHERE reg_no=? AND date=? AND subject=? AND status='IN'", (reg_no, date_str, subj))
+                                    if not cursor.fetchone():
+                                        res["status"], res["color"] = "No IN record found!", "red"
+                                    else:
+                                        out_t = curr_time.strftime("%H:%M:%S")
+                                        cursor.execute("INSERT INTO attendance (reg_no, name, branch, section, year, subject, date, time, status) VALUES (?,?,?,?,?,?,?,?,?)",
+                                                       (reg_no, name, br, sec, yr, subj, date_str, out_t, 'OUT'))
+                                        res["status"], res["color"] = f"OUT Marked at {out_t}", "green"
+                                else:
+                                    in_t = curr_time.strftime("%H:%M:%S")
+                                    cursor.execute("INSERT INTO attendance (reg_no, name, branch, section, year, subject, date, time, status) VALUES (?,?,?,?,?,?,?,?,?)",
+                                                   (reg_no, name, br, sec, yr, subj, date_str, in_t, 'IN'))
+                                    res["status"], res["color"] = f"IN Marked at {in_t}", "green"
+                                break
+                        final_results.append(res)
+                conn.commit()
                 conn.close()
-                return jsonify({"success": False, "message": "Face not recognized / Unregistered"})
-        
-        return jsonify({"success": False, "message": "No face detected"})
 
+        return jsonify({"success": True, "results": final_results})
     except Exception as e:
-        print(f"Server Error: {e}")
         return jsonify({"success": False, "message": str(e)})
 
 # ==========================

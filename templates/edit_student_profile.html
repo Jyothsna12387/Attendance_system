@@ -23,7 +23,9 @@
         .sidebar-header { padding: 25px; font-size: 22px; font-weight: bold; color: var(--primary); display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #f1f3f4; }
         .sidebar-menu { padding: 20px 0; flex-grow: 1; }
         .menu-item { padding: 12px 25px; display: flex; align-items: center; gap: 15px; color: var(--text-light); text-decoration: none; font-weight: 500; transition: 0.3s; }
-        .menu-item:hover, .menu-item.active { background: #f1f3f4; color: var(--primary); border-left: 4px solid var(--primary); }
+        
+        /* కరెక్ట్ పేజీ హైలైట్ కోసం */
+        .menu-item.active { background: #e8f0fe; color: var(--primary); border-left: 5px solid var(--primary); }
 
         /* --- Main Content Area --- */
         .main-content { margin-left: 260px; width: calc(100% - 260px); min-height: 100vh; background: var(--bg-gradient); }
@@ -50,8 +52,6 @@
         .btn-update:hover { background: #2d8a46; }
 
         #editFields { display: none; padding-top: 20px; border-top: 1px dashed #ddd; margin-top: 20px; }
-        
-        .badge-info { background: #e8f0fe; color: var(--primary); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -61,12 +61,14 @@
         <div class="sidebar-menu">
             <a href="/faculty_dashboard" class="menu-item"><i class="bi bi-columns-gap"></i> Dashboard</a>
             <a href="/register" class="menu-item"><i class="bi bi-person-plus"></i> Student Registration</a>
-            <a href="/edit_student_search" class="menu-item"><i class="bi bi-pencil-square"></i> Edit Student Profile</a>
+            
+            <a href="/edit_student_search" class="menu-item active"><i class="bi bi-pencil-square"></i> Edit Student Profile</a>
+            
             <a href="/secure_in" class="menu-item"><i class="bi bi-camera-video"></i> Start Entry (IN)</a>
             <a href="/secure_out" class="menu-item"><i class="bi bi-door-open"></i> Start Exit (OUT)</a>
             <a href="/attendance_reports" class="menu-item"><i class="bi bi-file-earmark-bar-graph"></i> Attendance Reports</a>
-            <a href="/manage_students" class="menu-item"><i class="bi bi-people"></i> Manage Students</a>    
-            <a href="/logout" class="menu-item" style="margin-top: auto; color: #d93025;"><i class="bi bi-power"></i> Logout</a>    
+            <a href="/manage_students" class="menu-item"><i class="bi bi-people"></i> Manage Students</a>
+            <a href="/logout" class="menu-item" style="margin-top: auto; color: #d93025;"><i class="bi bi-power"></i> Logout</a>
         </div>
     </div>
 
@@ -152,7 +154,6 @@
                     document.getElementById('edit_section').value = s.section;
                     document.getElementById('edit_phone').value = s.phone;
                     
-                    // Show fields
                     document.getElementById('editFields').style.display = 'block';
                     document.getElementById('updateBtn').style.display = 'flex';
                 } else {

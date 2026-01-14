@@ -31,66 +31,42 @@
         .page-tagline { color: var(--text-light); font-size: 15px; margin: 8px 0 25px; }
 
         /* Selection Bar */
-        .selection-container {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-
-        .input-card {
-            background: #fff;
-            border: 1px solid #dadce0;
-            border-radius: 10px;
-            padding: 10px 15px;
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            box-shadow: var(--shadow);
-        }
-
-        .input-card label {
-            font-size: 13px;
-            font-weight: 600;
-            color: #444;
-            margin-bottom: 4px;
-        }
-
-        .input-card input, .input-card select {
-            border: none;
-            outline: none;
-            font-size: 15px;
-            font-weight: 500;
-            background: transparent;
-            color: var(--text-dark);
-            width: 100%;
-        }
+        .selection-container { display: flex; gap: 15px; margin-bottom: 25px; }
+        .input-card { background: #fff; border: 1px solid #dadce0; border-radius: 10px; padding: 10px 15px; display: flex; flex-direction: column; flex: 1; box-shadow: var(--shadow); }
+        .input-card label { font-size: 13px; font-weight: 600; color: #444; margin-bottom: 4px; }
+        .input-card input, .input-card select { border: none; outline: none; font-size: 15px; font-weight: 500; background: transparent; color: var(--text-dark); width: 100%; }
 
         /* Attendance Area */
-        .attendance-grid {
-            display: flex;
-            gap: 25px;
-            align-items: stretch;
-        }
+        .attendance-grid { display: flex; gap: 25px; align-items: stretch; }
+        .camera-box { flex: 2; background: white; border-radius: 20px; box-shadow: var(--shadow); padding: 20px; text-align: center; position: relative; }
 
-        .camera-box {
-            flex: 2;
-            background: white;
-            border-radius: 20px;
-            box-shadow: var(--shadow);
-            padding: 20px;
-            text-align: center;
-            position: relative;
-        }
+        /* Container for Video + Overlay */
+       .video-container {
+          position: relative;
+           width: 640px;
+           height: 480px;
+           margin: 0 auto;
+           border-radius: 12px;
+           background: #000; /* ఇక్కడ బ్లాక్ కలర్ సెట్ చేశాను */
+           border: 2px solid #dadce0;
+         }
 
-        /* Camera Height Reduced here */
         video {
-            width: 100%;
-            height: 380px; 
+           width: 100%;
+            height: 100%;
             object-fit: cover;
-            border-radius: 12px;
-            background: #000;
-            transform: scaleX(-1);
-            border: 1px solid #f1f3f4;
+            display: block;
+           transform: scaleX(-1); /* వీడియోని మిర్రర్ చేస్తుంది */
+        }
+
+        #overlay-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 640px;
+    height: 480px;
+    pointer-events: none;
+    z-index: 10;
         }
 
         #scanning-indicator {
@@ -108,54 +84,18 @@
         }
 
         .controls { margin-top: 15px; }
-        .btn {
-            padding: 12px 40px;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 15px;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            transition: 0.3s;
-        }
-
+        .btn { padding: 12px 40px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; display: inline-flex; align-items: center; gap: 10px; transition: 0.3s; }
         .btn-start { background: #34A853; color: white; }
         .btn-stop { background: #D93025; color: white; display: none; }
 
-        .log-box {
-            flex: 1;
-            background: white;
-            border-radius: 20px;
-            box-shadow: var(--shadow);
-            padding: 25px;
-            display: flex;
-            flex-direction: column;
-            max-height: 520px;
-        }
-
+        .log-box { flex: 1; background: white; border-radius: 20px; box-shadow: var(--shadow); padding: 25px; display: flex; flex-direction: column; max-height: 580px; }
         .log-box h4 { margin: 0 0 15px; font-size: 17px; color: var(--text-dark); border-bottom: 1px solid #f1f3f4; padding-bottom: 10px; }
         #log-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
         #log-list li { padding: 10px 0; border-bottom: 1px solid #f8f9fa; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
         .log-success { color: #1e8e3e; font-weight: bold; }
         .log-error { color: #d93025; }
 
-        #scan-popup {
-            position: absolute;
-            top: 45%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            padding: 15px 30px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-            z-index: 100;
-            display: none;
-            font-weight: bold;
-            font-size: 17px;
-            border-top: 4px solid;
-        }
+        #scan-popup { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); padding: 15px 30px; background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); z-index: 100; display: none; font-weight: bold; font-size: 17px; border-top: 4px solid; }
     </style>
 </head>
 <body>
@@ -163,15 +103,17 @@
     <div class="sidebar">
         <div class="sidebar-header">Faculty Portal</div>
         <div class="sidebar-menu">
-            <a href="/faculty_dashboard" class="menu-item active"><i class="bi bi-columns-gap"></i> Dashboard</a>
-            <a href="/register" class="menu-item"><i class="bi bi-person-plus"></i> Student Registration</a>
-            <a href="/edit_student_search" class="menu-item"><i class="bi bi-pencil-square"></i> Edit Student Profile</a>
-            <a href="/secure_in" class="menu-item"><i class="bi bi-camera-video"></i> Start Entry (IN)</a>
-            <a href="/secure_out" class="menu-item"><i class="bi bi-door-open"></i> Start Exit (OUT)</a>
-            <a href="/attendance_reports" class="menu-item"><i class="bi bi-file-earmark-bar-graph"></i> Attendance Reports</a>
-            <a href="/manage_students" class="menu-item"><i class="bi bi-people"></i> Manage Students</a>
-            <a href="/logout" class="menu-item" style="margin-top: auto; color: #d93025;"><i class="bi bi-power"></i> Logout</a>
-        </div>
+    <a href="/faculty_dashboard" class="menu-item"><i class="bi bi-columns-gap"></i> Dashboard</a>
+    <a href="/register" class="menu-item"><i class="bi bi-person-plus"></i> Student Registration</a>
+    <a href="/edit_student_search" class="menu-item"><i class="bi bi-pencil-square"></i> Edit Student Profile</a>
+    
+    <a href="/secure_in" class="menu-item active"><i class="bi bi-camera-video"></i> Start Entry (IN)</a>
+    
+    <a href="/secure_out" class="menu-item"><i class="bi bi-door-open"></i> Start Exit (OUT)</a>
+    <a href="/attendance_reports" class="menu-item"><i class="bi bi-file-earmark-bar-graph"></i> Attendance Reports</a>
+    <a href="/manage_students" class="menu-item"><i class="bi bi-people"></i> Manage Students</a>
+    <a href="/logout" class="menu-item" style="margin-top: auto; color: #d93025;"><i class="bi bi-power"></i> Logout</a>
+</div>
     </div>
 
     <div class="main-content">
@@ -221,8 +163,13 @@
                 <div class="camera-box">
                     <div id="scanning-indicator">SCANNING ACTIVE</div>
                     <div id="scan-popup"></div>
-                    <video id="webcam" autoplay playsinline></video>
-                    <canvas id="canvas" style="display:none;"></canvas>
+                    
+                    <div class="video-container">
+                        <video id="webcam" autoplay playsinline></video>
+                        <canvas id="overlay-canvas"></canvas>
+                    </div>
+
+                    <canvas id="hidden-canvas" style="display:none;"></canvas>
 
                     <div class="controls">
                         <button id="startBtn" class="btn btn-start" onclick="startAttendance()">
@@ -257,73 +204,131 @@
 
             try {
                 await fetch('/api/toggle_attendance/IN/start');
-                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-                document.getElementById('webcam').srcObject = stream;
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                const video = document.getElementById('webcam');
+                video.srcObject = stream;
+                
                 document.getElementById('startBtn').style.display = 'none';
                 document.getElementById('stopBtn').style.display = 'inline-flex';
                 document.getElementById('scanning-indicator').style.display = 'block';
+                
                 isScanning = true;
-                scanInterval = setInterval(processAttendance, 1500); 
+                scanInterval = setInterval(processAttendance, 1000); 
                 addLogEntry(`Session Started: ${subject}`, 'info');
             } catch (err) { alert("Camera Permission Denied!"); }
         }
 
         async function processAttendance() {
-            if (!isScanning) return; 
-            const video = document.getElementById('webcam');
-            const canvas = document.getElementById('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (!isScanning) return; 
+    
+    const video = document.getElementById('webcam');
+    const hiddenCanvas = document.getElementById('hidden-canvas');
+    hiddenCanvas.width = video.videoWidth;
+    hiddenCanvas.height = video.videoHeight;
+    hiddenCanvas.getContext('2d').drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-            const data = {
-                image: canvas.toDataURL('image/jpeg', 0.8),
-                mode: 'IN',
-                subject: document.getElementById('subjectInput').value,
-                period: document.getElementById('periodInput').value,
-                year: document.getElementById('f_year').value,
-                branch: document.getElementById('f_branch').value.toUpperCase(),
-                section: document.getElementById('f_section').value.toUpperCase()
-            };
+    const payload = {
+        image: hiddenCanvas.toDataURL('image/jpeg', 0.8),
+        mode: 'IN', // ఇక్కడ నేరుగా 'IN' అని మార్చండి
+        subject: document.getElementById('subjectInput').value,
+        period: document.getElementById('periodInput').value,
+        year: document.getElementById('f_year').value,
+        branch: document.getElementById('f_branch').value.toUpperCase(),
+        section: document.getElementById('f_section').value.toUpperCase()
+    };
 
-            try {
-                const response = await fetch('/api/mark_attendance', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                const result = await response.json();
-                if (result.success) {
-                    showPopup(`Success: ${result.name}`, '#1e8e3e');
-                    addLogEntry(`Present: ${result.name}`, 'success');
-                } else if (result.message !== "No face detected") {
-                    showPopup(result.message, '#d93025');
-                    addLogEntry(result.message, 'error');
+    try {
+        const response = await fetch('/api/mark_attendance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        
+        if (result.success && result.results) {
+            drawBoxes(result.results);
+            result.results.forEach(res => {
+                // సర్వర్ నుండి వచ్చే స్టేటస్ మెసేజ్ ని బట్టి లాగ్
+                if (res.status.includes("Marked")) {
+                    addLogEntry(`Present: ${res.reg_no} (${res.status})`, 'success');
+                    showPopup(res.reg_no + ": " + res.status, res.color);
+                } else if (res.color === "orange" || res.color === "red") {
+                    addLogEntry(`${res.reg_no}: ${res.status}`, 'error');
                 }
-            } catch (e) { console.error(e); }
+            });
+        } else {
+            clearOverlay();
         }
+    } catch (e) { 
+        console.error("Attendance Process Error:", e);
+    }
+}
 
-        function showPopup(msg, color) {
-            const popup = document.getElementById('scan-popup');
-            popup.innerText = msg; popup.style.borderColor = color; popup.style.color = color;
-            popup.style.display = 'block';
-            setTimeout(() => { popup.style.display = 'none'; }, 3000);
+        // బాక్సులను గీయడానికి ఈ ఫంక్షన్ కచ్చితంగా ఉండాలి
+function drawBoxes(results) {
+    const canvas = document.getElementById('overlay-canvas');
+    const video = document.getElementById('webcam');
+    const ctx = canvas.getContext('2d');
+    
+    // బాక్సులు సరిగ్గా సెట్ అవ్వడానికి ఇది ముఖ్యం
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    results.forEach(face => {
+        const [x1, y1, x2, y2] = face.box;
+        const width = x2 - x1;
+        const height = y2 - y1;
+
+        // మిర్రర్ ఎఫెక్ట్ ని అడ్జస్ట్ చేయడం
+        const mirroredX1 = canvas.width - x2;
+
+        ctx.strokeStyle = face.color || 'red';
+        ctx.lineWidth = 4;
+        
+        // బాక్స్ గీయడం
+        ctx.strokeRect(mirroredX1, y1, width, height);
+
+        // టెక్స్ట్ కోసం రంగు
+        ctx.fillStyle = face.color || 'red';
+        ctx.font = "bold 18px Arial";
+        
+        // రిజిస్టర్ నంబర్ పైన
+        ctx.fillText(face.reg_no, mirroredX1, y1 - 10);
+
+        // స్టేటస్ కింద
+        ctx.font = "bold 14px Arial";
+        ctx.fillText("Status: " + face.status, mirroredX1, y2 + 25);
+    });
+}
+
+        function clearOverlay() {
+            const canvas = document.getElementById('overlay-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
         function addLogEntry(msg, type) {
             const list = document.getElementById('log-list');
             if (list.innerHTML.includes("No activity")) list.innerHTML = "";
+            
+            // Prevent spam for the same student/status in the same second
+            if (list.firstChild && list.firstChild.innerText.includes(msg)) return;
+
             const li = document.createElement('li');
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             li.innerHTML = `<span>${msg}</span> <span style="color:#999; font-size:12px;">${time}</span>`;
             if (type === 'success') li.classList.add('log-success');
             if (type === 'error') li.classList.add('log-error');
             list.prepend(li);
+            
+            if (list.children.length > 15) list.removeChild(list.lastChild);
         }
 
         async function stopAttendance() {
-            isScanning = false; clearInterval(scanInterval);
+            isScanning = false; 
+            clearInterval(scanInterval);
+            clearOverlay();
             if (stream) stream.getTracks().forEach(t => t.stop());
             await fetch('/api/toggle_attendance/IN/stop');
             window.location.reload();

@@ -31,7 +31,6 @@
         .page-title { font-size: 26px; font-weight: bold; color: var(--text-dark); margin: 0; }
         .page-tagline { color: var(--text-light); font-size: 15px; margin: 8px 0 25px; }
 
-        /* Selection Container - Matching Secure IN Style */
         .selection-container { display: flex; gap: 12px; margin-bottom: 25px; flex-wrap: wrap; }
         .input-card {
             background: #fff; border: 1px solid #dadce0; border-radius: 10px;
@@ -39,40 +38,29 @@
             box-shadow: var(--shadow);
         }
         .input-card label { font-size: 13px; font-weight: 600; color: #444; margin-bottom: 4px; }
-        .input-card input, .input-card select {
-            border: none; outline: none; font-size: 15px; font-weight: 500; background: transparent; color: var(--text-dark); width: 100%;
-        }
+        .input-card input, .input-card select { border: none; outline: none; font-size: 15px; font-weight: 500; background: transparent; color: var(--text-dark); width: 100%; }
 
-        /* Camera Grid */
         .attendance-grid { display: flex; gap: 25px; align-items: stretch; }
         .camera-box { flex: 2; background: white; border-radius: 20px; box-shadow: var(--shadow); padding: 20px; text-align: center; position: relative; }
         
-        video { width: 100%; height: 380px; object-fit: cover; border-radius: 12px; background: #000; transform: scaleX(-1); border: 1px solid #f1f3f4; }
+        /* Mirroring for Video and Canvas Overlay */
+        .video-wrapper { position: relative; width: 100%; max-width: 640px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; height:480px; border: 2px solid #dadce0; }
+        video { width: 100%; height: auto; display: block; transform: scaleX(-1); }
+        #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
-        #scanning-indicator {
-            position: absolute; top: 35px; left: 35px; background: var(--exit-red); color: white; padding: 5px 12px;
-            border-radius: 20px; font-size: 11px; font-weight: bold; display: none; z-index: 10;
-        }
+        #scanning-indicator { position: absolute; top: 35px; left: 35px; background: var(--exit-red); color: white; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; display: none; z-index: 10; }
 
-        /* Button Box */
         .controls { margin-top: 15px; }
         .btn { padding: 12px 40px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; transition: 0.3s; }
         .btn-start { background: var(--exit-red); color: white; }
         .btn-stop { background: #555; color: white; display: none; }
 
-        /* Log Box */
         .log-box { flex: 1; background: white; border-radius: 20px; box-shadow: var(--shadow); padding: 25px; display: flex; flex-direction: column; max-height: 520px; }
         .log-box h4 { margin: 0 0 15px; font-size: 17px; color: var(--text-dark); border-bottom: 1px solid #f1f3f4; padding-bottom: 10px; }
         #log-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
         #log-list li { padding: 10px 0; border-bottom: 1px solid #f8f9fa; font-size: 13px; display: flex; justify-content: space-between; }
         
-        /* Scan Popup */
-        #scan-popup {
-            position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%);
-            padding: 15px 30px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-            z-index: 9999; display: none; font-weight: bold; font-size: 17px; border-top: 5px solid;
-            min-width: 250px;
-        }
+        #scan-popup { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); padding: 15px 30px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 9999; display: none; font-weight: bold; font-size: 17px; border-top: 5px solid; min-width: 250px; }
     </style>
 </head>
 <body>
@@ -106,23 +94,18 @@
                 <div class="input-card"><label>Branch</label><input type="text" id="f_branch" placeholder="EX: CSE" style="text-transform: uppercase;"></div>
                 <div class="input-card"><label>Section</label><input type="text" id="f_section" placeholder="EX: A" style="text-transform: uppercase;"></div>
                 <div class="input-card" style="flex: 1.5;"><label>Subject / Period Name</label><input type="text" id="subjectInput" placeholder="Enter Subject Name"></div>
-                <div class="input-card">
-                    <label>Period</label>
-                    <select id="periodInput">
-                        <option value="1 & 2">1 & 2</option>
-                        <option value="3 & 4">3 & 4</option>
-                        <option value="5 & 6">5 & 6</option>
-                        <option value="7 & 8">7 & 8</option>
-                    </select>
-                </div>
+                <div class="input-card"><label>Period</label><select id="periodInput"><option value="1 & 2">1 & 2</option><option value="3 & 4">3 & 4</option><option value="5 & 6">5 & 6</option><option value="7 & 8">7 & 8</option></select></div>
             </div>
 
             <div class="attendance-grid">
                 <div class="camera-box">
                     <div id="scanning-indicator">EXIT SCANNING ACTIVE</div>
                     <div id="scan-popup"></div>
-                    <video id="webcam" autoplay playsinline></video>
-                    <canvas id="canvas" style="display:none;"></canvas>
+                    <div class="video-wrapper">
+                        <video id="webcam" autoplay playsinline></video>
+                        <canvas id="overlay-canvas"></canvas>
+                    </div>
+                    <canvas id="hidden-canvas" style="display:none;"></canvas>
 
                     <div class="controls">
                         <button id="startBtn" class="btn btn-start" onclick="startExitScan()">Start OUT Scanning</button>
@@ -143,17 +126,21 @@
 
         async function startExitScan() {
             const subject = document.getElementById('subjectInput').value.trim();
-            if (!subject) { alert("Please enter Subject Name!"); return; }
+            const branch = document.getElementById('f_branch').value.trim();
+            const section = document.getElementById('f_section').value.trim();
+            if (!subject || !branch || !section) { alert("Please fill all details!"); return; }
 
             try {
                 await fetch('/api/toggle_attendance/OUT/start');
-                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-                document.getElementById('webcam').srcObject = stream;
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                const video = document.getElementById('webcam');
+                video.srcObject = stream;
+                
                 document.getElementById('startBtn').style.display = 'none';
                 document.getElementById('stopBtn').style.display = 'inline-flex';
                 document.getElementById('scanning-indicator').style.display = 'block';
                 isScanning = true;
-                scanInterval = setInterval(processExit, 1500);
+                scanInterval = setInterval(processExit, 1000);
                 addLogEntry(`Session Started: ${subject}`, 'info');
             } catch (err) { alert("Camera Error: " + err); }
         }
@@ -161,12 +148,13 @@
         async function processExit() {
             if (!isScanning) return;
             const video = document.getElementById('webcam');
-            const canvas = document.getElementById('canvas');
-            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
+            const hiddenCanvas = document.getElementById('hidden-canvas');
+            hiddenCanvas.width = video.videoWidth; 
+            hiddenCanvas.height = video.videoHeight;
+            hiddenCanvas.getContext('2d').drawImage(video, 0, 0);
 
             const data = {
-                image: canvas.toDataURL('image/jpeg', 0.8),
+                image: hiddenCanvas.toDataURL('image/jpeg', 0.8),
                 mode: 'OUT',
                 subject: document.getElementById('subjectInput').value,
                 period: document.getElementById('periodInput').value,
@@ -177,21 +165,63 @@
 
             try {
                 const response = await fetch('/api/mark_attendance', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
                 const result = await response.json();
                 
-                if (result.success) {
-                    showPopup(`Exit Marked: ${result.name}`, '#d93025');
-                    addLogEntry(`OUT: ${result.name}`, 'out');
+                if (result.success && result.results) {
+                    drawBoxes(result.results);
+                    result.results.forEach(res => {
+                        if (res.status.includes("Marked")) {
+                            showPopup(res.reg_no + ": " + res.status, res.color);
+                            addLogEntry(res.reg_no + ": " + res.status, 'out');
+                        } else if (res.reg_no !== "Unknown" && (res.color === 'orange' || res.color === 'red')) {
+                            // Only show popup for specific errors like Wrong Class or Time Gap
+                            showPopup(res.status, res.color);
+                        }
+                    });
                 } else {
-                    if (result.message !== "No face detected") {
-                        showPopup(result.message, '#d93025');
-                        addLogEntry(result.message, 'error');
-                    }
+                    clearOverlay();
                 }
             } catch (err) { console.error("API Error:", err); }
+        }
+
+        function drawBoxes(results) {
+            const canvas = document.getElementById('overlay-canvas');
+            const video = document.getElementById('webcam');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            results.forEach(face => {
+                if (face.box) {
+                    const [x1, y1, x2, y2] = face.box;
+                    const width = x2 - x1;
+                    // Mirror logic for box position
+                    const mirroredX = canvas.width - x2; 
+
+                    ctx.strokeStyle = face.color || 'red';
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(mirroredX, y1, width, y2 - y1);
+
+                    ctx.fillStyle = face.color || 'red';
+                    ctx.font = "bold 18px Arial";
+                    ctx.fillText(face.reg_no || "Unknown", mirroredX, y1 - 10);
+                    
+                    ctx.font = "bold 14px Arial";
+                    ctx.fillText(face.status || "", mirroredX, y2 + 25);
+                }
+            });
+        }
+
+        function clearOverlay() {
+            const canvas = document.getElementById('overlay-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
         function showPopup(msg, color) {
@@ -200,12 +230,16 @@
             p.style.color = color;
             p.style.borderTopColor = color;
             p.style.display = 'block';
-            setTimeout(() => { p.style.display = 'none'; }, 3000);
+            setTimeout(() => { p.style.display = 'none'; }, 2000);
         }
 
         function addLogEntry(msg, type) {
             const list = document.getElementById('log-list');
             if (list.innerHTML.includes("Waiting") || list.innerHTML.includes("No activity")) list.innerHTML = "";
+            
+            // Avoid duplicate log entries for the same message in a short time
+            if (list.firstChild && list.firstChild.innerText.includes(msg)) return;
+
             const li = document.createElement('li');
             li.innerHTML = `<span>${msg}</span> <span style="color:#999; font-size:11px;">${new Date().toLocaleTimeString()}</span>`;
             
@@ -217,7 +251,9 @@
         }
 
         async function stopExitScan() {
-            isScanning = false; clearInterval(scanInterval);
+            isScanning = false; 
+            clearInterval(scanInterval);
+            clearOverlay();
             if (stream) stream.getTracks().forEach(t => t.stop());
             await fetch('/api/toggle_attendance/OUT/stop');
             window.location.reload();
