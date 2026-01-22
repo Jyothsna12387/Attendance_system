@@ -58,9 +58,10 @@ mtcnn = MTCNN(
     margin=14, 
     keep_all=True, 
     thresholds=[0.7, 0.8, 0.8], 
-    device=device
+    device=torch.device('cpu'), # కచ్చితంగా cpu అని ఉంచండి
+    post_process=False # మెమరీ ఆదా కోసం
 )
-model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+model = InceptionResnetV1(pretrained='vggface2').eval().to('cpu')
 
 temp_embeddings = {}
 
