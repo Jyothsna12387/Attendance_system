@@ -1,11 +1,18 @@
-opencv-python==4.8.0.76
+flask==2.2.5
+flask-cors
 numpy==1.24.4
 pandas==1.5.3
-torch==2.0.1
+# CPU వెర్షన్ టోర్చ్ వాడటం వల్ల మెమరీ ఆదా అవుతుంది
+torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
+torchvision --index-url https://download.pytorch.org/whl/cpu
 facenet-pytorch==2.5.2
-#pywin32==306
+mediapipe
 scikit-learn==1.3.2
-flask
+# సర్వర్ డిప్లాయ్మెంట్ కోసం headless వెర్షన్ తప్పనిసరి
+opencv-python-headless==4.8.0.76
+Pillow
+gunicorn
+
 
 setuptools
 wheel
