@@ -50,6 +50,27 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_EXE = sys.executable 
 DB_PATH = os.path.join(BASE_DIR, "data", "attendance1.db")
 
+def upgrade_faces_table():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("PRAGMA table_info(faces)")
+    cols = [c[1] for c in cursor.fetchall()]
+
+    if "geo_sig" not in cols:
+        print("Upgrading DB: adding geo_sig column")
+        cursor.execute("ALTER TABLE faces ADD COLUMN geo_sig TEXT")
+
+    if "face_area" not in cols:
+        print("Upgrading DB: adding face_area column")
+        cursor.execute("ALTER TABLE faces ADD COLUMN face_area TEXT")
+
+    conn.commit()
+    conn.close()
+
+upgrade_faces_table()
+
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # MTCNN thresholds తగ్గించాను (Look Down పనిచేయడానికి)
@@ -65,24 +86,47 @@ model = InceptionResnetV1(pretrained='vggface2').eval().to('cpu')
 
 temp_embeddings = {}
 
-conn = sqlite3.connect(DB_PATH)
-cursor = conn.cursor()
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        reg_no TEXT,
-        name TEXT,
-        branch TEXT,    
-        section TEXT,   
-        year TEXT,      
-        subject TEXT,   
-        date TEXT,
-        time TEXT,
-        status TEXT
-    )
-''')
-conn.commit()
-conn.close()
+def init_db():
+    # ఒకవేళ 'data' ఫోల్డర్ లేకపోతే క్రియేట్ చేస్తుంది
+    if not os.path.exists(os.path.join(BASE_DIR, "data")):
+        os.makedirs(os.path.join(BASE_DIR, "data"))
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # 1. Faces Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS faces (
+            reg_no TEXT PRIMARY KEY,
+            name TEXT,
+            phone TEXT,
+            branch TEXT,
+            section TEXT,
+            year TEXT,
+            embedding BLOB
+        )
+    ''')
+    # 2. Attendance Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reg_no TEXT,
+            name TEXT,
+            branch TEXT,    
+            section TEXT,   
+            year TEXT,      
+            subject TEXT,   
+            date TEXT,
+            time TEXT,
+            status TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# సర్వర్ రన్ అయ్యే ముందు టేబుల్స్ క్రియేట్ అవుతాయి
+init_db()
+
+
 
 # Server memory lo status maintain cheyyadaniki
 attendance_status = {
@@ -191,118 +235,124 @@ def verify_pose(landmarks, expected_pose):
     print(f"Expected: {expected_pose} | Detected: {detected} | Diff_H: {diff_h:.2f}")
     return (detected == expected_pose), detected
 
-
 @app.route('/api/process_web_pose', methods=['POST'])
 def process_web_pose():
     try:
         data = request.json
         name = data.get('name')
         reg_no = data.get('reg_no', '').strip().upper()
-        expected_pose = data.get('pose') # ఇక్కడ "Turn Face Left" వస్తోంది
+        year = data.get('year')
+        expected_pose = data.get('pose') # "Turn Face Left" / "Turn Face Right"
         img_base64 = data.get('image').split(',')[1]
 
-        # 1. Decode Image
+        if len(reg_no) != 10:
+            return jsonify({"success": False, "message": "Invalid Registration Number (10 chars required)."})
+
+        # 1. Image Decode
         img_bytes = base64.b64decode(img_base64)
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(rgb).convert("RGB")
 
-        # 2. Detection
+        # 2. Face Detection
         boxes, probs, landmarks = mtcnn.detect(pil_img, landmarks=True)
         if boxes is None or landmarks is None:
-            return jsonify({"success": False, "message": "Face not detected clearly."})
+            return jsonify({"success": False, "message": "Face not detected clearly. Stay still."})
 
-        # --- POSE LOGIC ---
+        # --- 3. POSE CHECK (Strict Left/Right) ---
         lm = landmarks[0]
         left_eye, right_eye, nose = lm[0], lm[1], lm[2]
         diff_h = (nose[0] - left_eye[0]) - (right_eye[0] - nose[0])
-        eye_avg_y = (left_eye[1] + right_eye[1]) / 2
-        diff_v = nose[1] - eye_avg_y
+        
+        detected = "Straight"
+        if diff_h > 15: detected = "Turn Face Left"
+        elif diff_h < -15: detected = "Turn Face Right"
 
-        detected = "Look Straight"
-        if diff_h > 12: 
-            detected = "Turn Left"
-        elif diff_h < -12:
-            detected = "Turn Right"
-        elif diff_v < 15:
-            detected = "Look Up"
-        elif diff_v > 65:
-            detected = "Look Down"
+        if detected != expected_pose:
+            return jsonify({"success": False, "message": f"Please {expected_pose}"})
 
-        print(f"POSE DEBUG: Expected={expected_pose} | Detected={detected} | H={diff_h:.1f}")
-
-        # --- FIX: Frontend Pose Name Mapping ---
-        # ఫ్రంటెండ్ లో "Turn Face Left" ఉంటే మన కోడ్ లోని "Turn Left" తో మ్యాచ్ చేస్తున్నాం
-        pose_mapping = {
-            "Look Straight": ["Look Straight", "Straight"],
-            "Turn Left": ["Turn Face Left", "Turn Left", "Left"],
-            "Turn Right": ["Turn Face Right", "Turn Right", "Right"],
-            "Look Up": ["Look Up", "Up"],
-            "Look Down": ["Look Down", "Down"]
-        }
-
-        is_correct = False
-        for key, aliases in pose_mapping.items():
-            if expected_pose in aliases and detected == key:
-                is_correct = True
-                break
-
-        if not is_correct:
-            return jsonify({"success": False, "message": f"Position wrong. Please {expected_pose}"})
-
-        # 3. Embedding Process
+        # 4. Generate & Normalize Embedding
         face_tensor = mtcnn(pil_img)
-        if face_tensor is not None:
-            while face_tensor.dim() > 4: face_tensor = face_tensor.squeeze(0)
-            if face_tensor.dim() == 3: face_tensor = face_tensor.unsqueeze(0)
+        if face_tensor is None:
+            return jsonify({"success": False, "message": "Detection failed."})
 
-            with torch.no_grad():
-                emb = model(face_tensor.to(device)).cpu().numpy().flatten()
+        if isinstance(face_tensor, list): face_tensor = face_tensor[0]
+        if face_tensor.dim() == 3: face_tensor = face_tensor.unsqueeze(0)
 
-            # --- 4. IMPROVED DUPLICATE CHECK (Runs before adding to temp) ---
-            # ఒకవేళ temp_embeddings లో ఇంకా డేటా లేకపోతే (అంటే ఫస్ట్ పోజ్ అయితే) డేటాబేస్ చెక్ చేయాలి
-            if reg_no not in temp_embeddings or len(temp_embeddings[reg_no]) == 0:
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
-                cursor.execute("SELECT reg_no, name, embedding FROM faces")
-                rows = cursor.fetchall()
-                conn.close()
+        with torch.no_grad():
+            emb = model(face_tensor.to(device)).cpu().numpy().flatten()
+            # L2 Normalization for consistency
+            emb = emb / (np.linalg.norm(emb) + 1e-6)
 
-                for ex_reg, ex_name, ex_emb_blob in rows:
-                    if ex_emb_blob:
-                        ex_emb = np.frombuffer(ex_emb_blob, dtype=np.float32)
-                        dist = np.linalg.norm(emb - ex_emb)
-                        print(f"DUPLICATE CHECK: {ex_name}, Dist={dist:.4f}")
-                        
-                        if dist < 1.25: # Threshold 1.25 is very accurate
-                            return jsonify({
-                                "success": False, 
-                                "is_duplicate": True, 
-                                "message": f"Face already registered as {ex_name} ({ex_reg})"
-                            })
+        # 5. Initialize Temp Storage
+        if reg_no not in temp_embeddings:
+            temp_embeddings[reg_no] = []
 
-            # 5. Store in Temp
-            if reg_no not in temp_embeddings:
-                temp_embeddings[reg_no] = []
-            temp_embeddings[reg_no].append(emb)
+        # --- 6. BEST MATCH DUPLICATE CHECK (Only on 1st Pose) ---
+        if len(temp_embeddings[reg_no]) == 0:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT reg_no, name, embedding FROM faces")
+            rows = cursor.fetchall()
+            conn.close()
 
-            # 6. Save after 5 poses
-            if len(temp_embeddings[reg_no]) >= 5:
-                avg_emb = np.mean(temp_embeddings[reg_no], axis=0).astype(np.float32)
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO faces (reg_no, name, phone, branch, section, year, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                               (reg_no, name, data.get('phone'), data.get('branch'), data.get('section'), data.get('year'), avg_emb.tobytes()))
-                conn.commit()
-                conn.close()
-                del temp_embeddings[reg_no]
-                return jsonify({"success": True, "completed": True})
+            best_match_dist = 100.0
+            best_match_info = None
+            
+            # Normalization వాడినప్పుడు 0.75 - 0.80 అనేది పక్కా థ్రెషోల్డ్
+            STRICT_MATCH = 0.78 
 
-            return jsonify({"success": True, "completed": False})
+            for ex_reg, ex_name, ex_emb_blob in rows:
+                if not ex_emb_blob: continue
+                
+                ex_emb = np.frombuffer(ex_emb_blob, dtype=np.float32)
+                # Normalize existing DB embedding
+                ex_emb = ex_emb / (np.linalg.norm(ex_emb) + 1e-6)
+                
+                dist = np.linalg.norm(emb - ex_emb)
+                
+                # అందరిలో అతి తక్కువ దూరం ఉన్న వ్యక్తిని వెతకడం
+                if dist < best_match_dist:
+                    best_match_dist = dist
+                    best_match_info = (ex_reg, ex_name)
+
+            # బెస్ట్ మ్యాచ్ ని మాత్రమే డూప్లికేట్ గా చూపిస్తుంది
+            if best_match_info and best_match_dist < STRICT_MATCH:
+                found_reg, found_name = best_match_info
+                print(f"DUPLICATE DETECTED: {found_name} ({found_reg}) | Distance: {best_match_dist:.4f}")
+                
+                if reg_no in temp_embeddings: del temp_embeddings[reg_no]
+                return jsonify({
+                    "success": False, 
+                    "is_duplicate": True, 
+                    "message": f"Face already registered as {found_name} ({found_reg})"
+                })
+
+        # 7. Store in Temp
+        temp_embeddings[reg_no].append(emb)
+
+        # 8. Final Save after 2 Poses
+        if len(temp_embeddings[reg_no]) >= 2:
+            avg_emb = np.mean(temp_embeddings[reg_no], axis=0).astype(np.float32)
+            
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO faces (reg_no, name, phone, branch, section, year, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                reg_no, name, data.get('phone'), data.get('branch'), 
+                data.get('section'), year, avg_emb.tobytes()
+            ))
+            conn.commit()
+            conn.close()
+            del temp_embeddings[reg_no]
+            return jsonify({"success": True, "completed": True})
+
+        return jsonify({"success": True, "completed": False})
 
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"REG ERROR: {e}")
         return jsonify({"success": False, "message": str(e)})
 
 
@@ -417,14 +467,14 @@ def student_login():
 # MARK ATTENDANCE
 # ===================
 
-user_states = {}
+# --- ఈ లైన్ ఖచ్చితంగా ఫంక్షన్ బయట (Global గా) ఉండాలి ---
+user_states = {} 
 
 @app.route('/api/mark_attendance', methods=['POST'])
 def mark_attendance():
     try:
         data = request.json
         mode = data.get('mode', '').upper().strip()
-
         subject = str(data.get('subject', 'General')).strip()
         period = str(data.get('period', '')).strip()
         subj = f"{subject} ({period})"
@@ -433,13 +483,11 @@ def mark_attendance():
         f_br = str(data.get('branch')).strip().upper()
         f_sec = str(data.get('section')).strip().upper()
 
-        # -------- Image Decode --------
         img_bytes = base64.b64decode(data.get('image').split(',')[1])
         frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         h, w, _ = frame.shape
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # -------- Face Detection --------
         pil_img = Image.fromarray(rgb)
         boxes, _ = mtcnn.detect(pil_img)
         final_results = []
@@ -463,169 +511,92 @@ def mark_attendance():
 
         for i in range(len(boxes)):
             box = boxes[i]
-            x1, y1, x2, y2 = box
+            x1, y1, x2, y2 = box.tolist()
             face_area = (x2 - x1) * (y2 - y1)
 
-            res = {
-                "box": box.tolist(),
-                "reg_no": "Unknown",
-                "status": "Identifying...",
-                "color": "white"
-            }
+            res = {"box": box.tolist(), "reg_no": "Unknown", "status": "Identifying...", "color": "white"}
 
-            new_emb = model(
-                face_tensors[i].unsqueeze(0).to(device)
-            ).detach().cpu().numpy().flatten()
+            face_t = face_tensors[i]
+            if face_t.dim() == 3: face_t = face_t.unsqueeze(0)
+            with torch.no_grad():
+                new_emb = model(face_t.to(device)).cpu().numpy().flatten()
+                new_emb = new_emb / (np.linalg.norm(new_emb) + 1e-6)
 
             for reg_no, name, br, sec, yr, emb_blob in all_students:
-                if np.linalg.norm(
-                    new_emb - np.frombuffer(emb_blob, dtype=np.float32)
-                ) < 0.70:
-
+                db_emb = np.frombuffer(emb_blob, dtype=np.float32)
+                db_emb = db_emb / (np.linalg.norm(db_emb) + 1e-6)
+                
+                if np.linalg.norm(new_emb - db_emb) < 0.70:
                     res["reg_no"] = reg_no
 
-                    # -------- RULE 1: WRONG CLASS --------
+                    # --- 1. Class Check ---
                     if str(yr) != f_yr or str(br) != f_br or str(sec) != f_sec:
-                        res.update({
-                            "status": f"Wrong Class! You belong to {yr}-{br}-{sec}",
-                            "color": "orange"
-                        })
+                        res.update({"status": f"Wrong Class! {yr}-{br}-{sec}", "color": "orange"})
                         break
 
-                    # -------- RULE 2A: IN MODE DUPLICATE BLOCK (UNCHANGED) --------
+                    # --- 2. Mode Validations ---
+                    skip_to_liveness = True 
                     if mode == "IN":
-                        cursor.execute("""
-                            SELECT time FROM attendance
-                            WHERE reg_no=? AND date=? AND subject=? AND status='IN'
-                        """, (reg_no, date_str, subj))
-
+                        cursor.execute("SELECT time FROM attendance WHERE reg_no=? AND date=? AND subject=? AND status='IN'", (reg_no, date_str, subj))
                         already = cursor.fetchone()
                         if already:
-                            res.update({
-                                "status": f"You already marked at {already[0]}",
-                                "color": "orange"
-                            })
-                            break
+                            res.update({"status": f"Already marked at {already[0]}", "color": "orange"})
+                            skip_to_liveness = False # ఇక్కడ ఆపేయాలి
 
-                    # -------- RULE 2B: OUT MODE VALIDATION (FIXED) --------
-                    if mode == "OUT":
-
-                        # 1) Fetch latest IN of today (ignore subject)
-                        cursor.execute("""
-                            SELECT time FROM attendance
-                            WHERE reg_no=? AND date=? AND status='IN'
-                            ORDER BY id DESC LIMIT 1
-                        """, (reg_no, date_str))
-
+                    elif mode == "OUT":
+                        cursor.execute("SELECT time FROM attendance WHERE reg_no=? AND date=? AND status='IN' ORDER BY id DESC LIMIT 1", (reg_no, date_str))
                         in_row = cursor.fetchone()
                         if not in_row:
-                            res.update({
-                                "status": "IN not marked yet",
-                                "color": "orange"
-                            })
-                            break
+                            res.update({"status": "IN not marked yet", "color": "orange"})
+                            skip_to_liveness = False
+                        else:
+                            in_time = datetime.strptime(f"{date_str} {in_row[0]}", "%Y-%m-%d %H:%M:%S")
+                            diff_min = (curr_time - in_time).total_seconds() / 60
+                            if diff_min < 7:
+                                res.update({"status": f"Wait {math.ceil(7 - diff_min)} mins", "color": "orange"})
+                                skip_to_liveness = False
+                            else:
+                                cursor.execute("SELECT time FROM attendance WHERE reg_no=? AND date=? AND status='OUT' ORDER BY id DESC LIMIT 1", (reg_no, date_str))
+                                out_already = cursor.fetchone()
+                                if out_already:
+                                    res.update({"status": f"Already OUT at {out_already[0]}", "color": "orange"})
+                                    skip_to_liveness = False
 
-                        in_time_str = in_row[0]
+                    # వాలిడేషన్ ఫెయిల్ అయితే బ్రేక్
+                    if not skip_to_liveness:
+                        break
 
-                        # 2) Gap check (50 minutes)
-                        in_time = datetime.strptime(
-                            f"{date_str} {in_time_str}",
-                            "%Y-%m-%d %H:%M:%S"
-                        )
-
-                        diff_min = (curr_time - in_time).total_seconds() / 60
-
-                        if diff_min < 60:
-                            wait_min = math.ceil(60 - diff_min)
-                            if wait_min < 1:
-                                wait_min = 1
-                            res.update({
-                                "status": f"Too Early! Wait {wait_min} minutes",
-                                "color": "orange"
-                            })
-                            break
-
-                        # 3) Already OUT today?
-                        cursor.execute("""
-                            SELECT time FROM attendance
-                            WHERE reg_no=? AND date=? AND status='OUT'
-                            ORDER BY id DESC LIMIT 1
-                        """, (reg_no, date_str))
-
-                        out_row = cursor.fetchone()
-                        if out_row:
-                            res.update({
-                                "status": f"Already OUT at {out_row[0]}",
-                                "color": "orange"
-                            })
-                            break
-
-                    # -------- INIT USER STATE --------
+                    # --- 3. Liveness Checks (Blink + Turn) ---
                     if reg_no not in user_states:
-                        user_states[reg_no] = {
-                            "blinked": False,
-                            "turned": False,
-                            "ear_frames": 0,
-                            "base_area": face_area,
-                            "base_cx": (x1 + x2) / 2,
-                            "base_cy": (y1 + y2) / 2
-                        }
-
+                        user_states[reg_no] = {"blinked": False, "turned": False, "ear_frames": 0, "base_area": face_area, "base_cx": (x1+x2)/2, "base_cy": (y1+y2)/2}
+                    
                     state = user_states[reg_no]
+                    cx, cy = (x1+x2)/2, (y1+y2)/2
 
-                    # -------- SPOOF CHECK --------
-                    cx = (x1 + x2) / 2
-                    cy = (y1 + y2) / 2
+                    # Spoof check
+                    if abs(face_area - state["base_area"]) / state["base_area"] > 0.20 or math.hypot(cx - state["base_cx"], cy - state["base_cy"]) > 30:
+                        res.update({"status": "SPOOF DETECTED", "color": "red"})
+                        del user_states[reg_no]; break
 
-                    area_ratio = abs(face_area - state["base_area"]) / state["base_area"]
-                    center_dist = math.hypot(cx - state["base_cx"], cy - state["base_cy"])
-
-                    if area_ratio > 0.20:
-                        res.update({"status": "SPOOF: ZOOMING IMAGE", "color": "red"})
-                        del user_states[reg_no]
-                        break
-
-                    if center_dist > 30 and area_ratio > 0.15:
-                        res.update({"status": "SPOOF: MOVING IMAGE", "color": "red"})
-                        del user_states[reg_no]
-                        break
-
-                    # -------- FACE MESH --------
                     if not mesh_results.multi_face_landmarks:
-                        res.update({"status": "FACE NOT CLEAR", "color": "red"})
-                        break
+                        res.update({"status": "FACE NOT CLEAR", "color": "red"}); break
 
                     fl = mesh_results.multi_face_landmarks[i]
-
-                    # -------- BLINK CHECK --------
-                    ear = (
-                        abs(fl.landmark[145].y - fl.landmark[159].y) +
-                        abs(fl.landmark[374].y - fl.landmark[386].y)
-                    ) / 2
-
-                    EAR_THRESHOLD = 0.020
-                    EAR_FRAMES = 2
-
+                    
+                    # Blink Check
+                    ear = (abs(fl.landmark[145].y - fl.landmark[159].y) + abs(fl.landmark[374].y - fl.landmark[386].y)) / 2
                     if not state["blinked"]:
-                        if ear < EAR_THRESHOLD:
-                            state["ear_frames"] += 1
-                        else:
-                            state["ear_frames"] = 0
-
-                        if state["ear_frames"] >= EAR_FRAMES:
+                        if ear < 0.020: state["ear_frames"] += 1
+                        else: state["ear_frames"] = 0
+                        if state["ear_frames"] >= 2:
                             state["blinked"] = True
-                            state["ear_frames"] = 0
                             res.update({"status": "BLINK OK! TURN HEAD", "color": "blue"})
                         else:
                             res.update({"status": "STEP 1: BLINK NOW", "color": "yellow"})
                         break
 
-                    # -------- HEAD TURN CHECK --------
-                    nose_x = fl.landmark[1].x * w
-                    l_eye_x = fl.landmark[33].x * w
-                    r_eye_x = fl.landmark[263].x * w
-                    turn_ratio = (nose_x - l_eye_x) / (r_eye_x - l_eye_x)
-
+                    # Turn Check
+                    turn_ratio = (fl.landmark[1].x * w - fl.landmark[33].x * w) / (fl.landmark[263].x * w - fl.landmark[33].x * w + 1e-6)
                     if not state["turned"]:
                         if turn_ratio < 0.30 or turn_ratio > 0.70:
                             state["turned"] = True
@@ -634,34 +605,20 @@ def mark_attendance():
                             res.update({"status": "STEP 2: TURN HEAD", "color": "cyan"})
                         break
 
-                    # -------- FINAL SUCCESS --------
+                    # --- 4. Final Success (Both IN and OUT reach here) ---
                     t_str = curr_time.strftime("%H:%M:%S")
-                    cursor.execute("""
-                        INSERT INTO attendance 
-                        (reg_no, name, branch, section, year, subject, date, time, status)
-                        VALUES (?,?,?,?,?,?,?,?,?)
-                    """, (reg_no, name, br, sec, yr, subj, date_str, t_str, mode))
-
-                    res.update({
-                        "status": f"{mode} MARKED: {t_str}",
-                        "color": "green"
-                    })
-
+                    cursor.execute("INSERT INTO attendance (reg_no, name, branch, section, year, subject, date, time, status) VALUES (?,?,?,?,?,?,?,?,?)",
+                                 (reg_no, name, br, sec, yr, subj, date_str, t_str, mode))
+                    res.update({"status": f"{mode} MARKED: {t_str}", "color": "green"})
                     del user_states[reg_no]
                     break
 
             final_results.append(res)
-
-        conn.commit()
-        conn.close()
-
+        conn.commit(); conn.close()
         return jsonify({"success": True, "results": final_results})
-
     except Exception as e:
         print("MARK ERROR:", e)
         return jsonify({"success": False, "message": str(e)})
-
-
 
 
 # ==========================
@@ -672,12 +629,17 @@ def manage_students():
     if session.get('role') != 'faculty':
         return redirect(url_for('login_page'))
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT reg_no, name, branch, section, phone, year FROM faces")
-    students = cursor.fetchall()
-    conn.close()
-    return render_template('manage_students.html', students=students)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT reg_no, name, branch, section, phone, year FROM faces")
+        students = cursor.fetchall()
+        conn.close()
+        return render_template('manage_students.html', students=students)
+    except Exception as e:
+        print(f"Manage Students Error: {e}")
+        # డేటాబేస్ లేకపోయినా ఖాళీ లిస్ట్ తో పేజీని చూపిస్తుంది
+        return render_template('manage_students.html', students=[])
 
 @app.route('/api/delete_student/<reg_no>', methods=['DELETE'])
 def api_delete_student(reg_no):
@@ -861,73 +823,117 @@ def download_report():
     if session.get('role') != 'faculty':
         return redirect(url_for('login_page'))
     
-    # 1. ఫిల్టర్స్ తీసుకోవడం
-    f_year = request.args.get('year', '1').strip()
+    f_year = request.args.get('year', '').strip()
     f_branch = request.args.get('branch', '').upper().strip()
     f_section = request.args.get('section', '').upper().strip()
     f_subject = request.args.get('subject', '').strip()
     f_period = request.args.get('period', '').strip()
-    selected_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    selected_date = request.args.get('date', '').strip()
     
+    if not f_year or not f_branch or not f_section or not f_subject or not selected_date:
+        return """<script>alert('Please select all details!'); window.location.href='/attendance_reports';</script>"""
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # 2. డేటా జనరేషన్ (మనం ఇంతకుముందు రాసిన లాజిక్)
-    cursor.execute("SELECT reg_no, name FROM faces WHERE year=? AND branch=? AND section=?", (f_year, f_branch, f_section))
+    # 1. Students list
+    cursor.execute(
+        "SELECT reg_no, name FROM faces WHERE year=? AND branch=? AND section=?",
+        (f_year, f_branch, f_section)
+    )
     students = cursor.fetchall()
     
-    cursor.execute("SELECT reg_no, status, time, subject FROM attendance WHERE date = ?", (selected_date,))
+    if not students:
+        conn.close()
+        return """<script>alert('No students found!'); window.location.href='/attendance_reports';</script>"""
+    
+    # 2. Attendance data for date
+    cursor.execute(
+        "SELECT reg_no, status, time, subject FROM attendance WHERE date = ?",
+        (selected_date,)
+    )
     raw_attendance = cursor.fetchall()
 
+    # 3. Build attendance map (SAME LOGIC AS WEB)
     attendance_map = {}
-    for reg_no, status, at_time, db_subject in raw_attendance:
-        r_no = reg_no.upper().strip()
-        if f_subject.lower() not in db_subject.lower(): continue
-        if f_period and f_period not in db_subject: continue
-        if r_no not in attendance_map: attendance_map[r_no] = {'in_time': '-', 'out_time': '-'}
-        st_clean = str(status).strip().upper()
-        if st_clean == 'IN': attendance_map[r_no]['in_time'] = at_time
-        elif st_clean == 'OUT': attendance_map[r_no]['out_time'] = at_time
 
+    for reg_no, status, at_time, db_subject in raw_attendance:
+        if not reg_no:
+            continue
+        
+        r_no = str(reg_no).strip().upper()
+        db_sub = str(db_subject).strip().lower()
+
+        # Subject match (case-insensitive)
+        if f_subject.lower() not in db_sub:
+            continue
+        
+        # Period match only if selected
+        if f_period and f_period not in db_subject:
+            continue
+
+        if r_no not in attendance_map:
+            attendance_map[r_no] = {'in_time': '-', 'out_time': '-'}
+
+        st_clean = str(status).strip().upper()
+        if st_clean == 'IN':
+            attendance_map[r_no]['in_time'] = at_time
+        elif st_clean == 'OUT':
+            attendance_map[r_no]['out_time'] = at_time
+
+    # 4. Prepare Excel rows (SAME PRESENT RULE AS WEB)
     excel_data = []
-    for reg_no, name in students:
-        r_no = reg_no.upper().strip()
-        times = attendance_map.get(r_no, {'in_time': '-', 'out_time': '-'})
+
+    for s_reg, s_name in students:
+        clean_reg = str(s_reg).strip().upper()
+        times = attendance_map.get(clean_reg, {'in_time': '-', 'out_time': '-'})
+
+        in_t = times['in_time']
+        out_t = times['out_time']
+
+        is_present = (in_t != '-' and out_t != '-')
+        status_val = "Present" if is_present else "Absent"
+
         excel_data.append({
-            'Roll No': reg_no,
-            'Student Name': name,
-            'Status': "Present" if times['in_time'] != '-' and times['out_time'] != '-' else "Absent",
-            'IN Time': times['in_time'],
-            'OUT Time': times['out_time']
+            'Roll No': clean_reg,
+            'Student Name': s_name,
+            'Status': status_val,
+            'IN Time': in_t,
+            'OUT Time': out_t
         })
+
     conn.close()
 
-    # 3. Excel ఫార్మాటింగ్ (Filters + Data)
+    # 5. Generate Excel
     df = pd.DataFrame(excel_data)
     output = BytesIO()
-    
+
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # ముందుగా ఫిల్టర్ వివరాలను ఒక చిన్న షీట్ లాగా తయారు చేయడం
         filter_info = [
             ['Attendance Report'],
             ['Date:', selected_date],
             ['Subject:', f"{f_subject} ({f_period})"],
             ['Year:', f"{f_year} Year"],
             ['Branch & Section:', f"{f_branch} - {f_section}"],
-            [] # ఒక ఖాళీ వరుస
+            []
         ]
-        filter_df = pd.DataFrame(filter_info)
-        
-        # ఫిల్టర్లను మొదట రాయడం (Row 0 నుండి)
-        filter_df.to_excel(writer, index=False, header=False, sheet_name='Attendance')
-        
-        # అసలు డేటాను ఫిల్టర్ల కింద (Row 7 నుండి) రాయడం
-        df.to_excel(writer, index=False, startrow=7, sheet_name='Attendance')
-    
+        pd.DataFrame(filter_info).to_excel(
+            writer, index=False, header=False, sheet_name='Attendance'
+        )
+        df.to_excel(
+            writer, index=False, startrow=7, sheet_name='Attendance'
+        )
+
     output.seek(0)
-    filename = f"Report_{f_subject}_{selected_date}.xlsx"
-    return send_file(output, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
+    filename = f"Report_{f_branch}_{f_section}_{selected_date}.xlsx"
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
 
 
 if __name__ == "__main__":

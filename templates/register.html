@@ -116,7 +116,7 @@
             <h4 id="pose-instruction" style="margin-bottom:10px; color: var(--text-dark);">Starting Camera...</h4>
             <video id="webcam" autoplay playsinline></video>
             <div class="progress-bar"><div id="progress-fill"></div></div>
-            <div id="capture-status" class="status-msg" style="color: var(--primary);">0/5 Poses Captured</div>
+            <div id="capture-status" class="status-msg" style="color: var(--primary);">0/2 Poses Captured</div>
             <button onclick="closeCamera()" style="margin-top: 15px; color: #d93025; border: none; background: none; font-weight: bold; cursor: pointer;">Cancel</button>
         </div>
     </div>
@@ -172,7 +172,7 @@
 
         let stream;
         let poseCount = 0;
-        const poses = ["Look Straight", "Turn Face Left", "Turn Face Right", "Look Up", "Look Down"];
+        const poses = ["Turn Face Left", "Turn Face Right"];
 
         async function openCamera() {
             document.getElementById('camera-overlay').style.display = 'flex';
@@ -186,7 +186,7 @@
 
        
         async function captureFlow() {
-    if (poseCount >= 5) return;
+    if (poseCount >= 2) return;
 
     const instructionEl = document.getElementById('pose-instruction');
     const statusEl = document.getElementById('capture-status');
@@ -225,11 +225,11 @@
 
         if (result.success) {
             poseCount++;
-            let progressPercent = (poseCount / 5) * 100;
+            let progressPercent = (poseCount / 2) * 100;
 
             // Progress bar update
             progressFill.style.width = progressPercent + "%";
-            statusEl.innerText = poseCount + "/5 Poses Captured";
+            statusEl.innerText = poseCount + "/2 Poses Captured";
 
             if (result.completed) {
                 // Enrollment success handling

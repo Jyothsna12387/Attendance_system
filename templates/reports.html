@@ -127,9 +127,11 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; margin-top: 15px;">
                  <h2 style="margin: 0;">Attendance Reports</h2>
     
-                <a href="/download_report?year={{ f_year }}&branch={{ f_branch }}&section={{ f_section }}&subject={{ f_subject }}&period={{ f_period }}&date={{ date }}" 
-                   class="btn-generate" 
-                     style="background: #1e8e3e; text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 8px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                <a href="#" 
+   class="btn-generate" 
+   onclick="handleDownload(event)"
+   style="background: #1e8e3e; text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 8px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+
                    <i class="bi bi-file-earmark-excel" style="font-size: 1.2rem;"></i> Download Excel
                </a>
            </div>
@@ -250,6 +252,30 @@
                 row.style.display = (status === 'All' || rowStatus === status) ? "" : "none";
             });
         }
+
+        function handleDownload(event) {
+    event.preventDefault(); // 🔥 MOST IMPORTANT FIX
+
+    // Form inputs direct ga name attribute nunchi teeskuntam
+    const year = document.querySelector("select[name='year']").value;
+    const branch = document.querySelector("input[name='branch']").value.trim();
+    const section = document.querySelector("input[name='section']").value.trim();
+    const subject = document.querySelector("input[name='subject']").value.trim();
+    const period = document.querySelector("select[name='period']").value;
+    const date = document.querySelector("input[name='date']").value;
+
+    // Empty check
+    if (!year || !branch || !section || !subject || !period || !date) {
+        alert("Please select all details before downloading the report!");
+        return; //  STOP HERE, no page reload
+    }
+
+    // Safe URL build
+    const url = `/download_report?year=${encodeURIComponent(year)}&branch=${encodeURIComponent(branch)}&section=${encodeURIComponent(section)}&subject=${encodeURIComponent(subject)}&period=${encodeURIComponent(period)}&date=${encodeURIComponent(date)}`;
+
+    window.location.href = url; // Only now navigate
+}
+
     </script>
 </body>
 </html>
