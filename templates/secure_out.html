@@ -174,14 +174,34 @@
                 if (result.success && result.results) {
                     drawBoxes(result.results);
                     result.results.forEach(res => {
-                        if (res.status.includes("Marked")) {
-                            showPopup(res.reg_no + ": " + res.status, res.color);
-                            addLogEntry(res.reg_no + ": " + res.status, 'out');
-                        } else if (res.reg_no !== "Unknown" && (res.color === 'orange' || res.color === 'red')) {
-                            // Only show popup for specific errors like Wrong Class or Time Gap
-                            showPopup(res.status, res.color);
-                        }
-                    });
+
+    // ✅ Only SUCCESS case show
+    if (res.status && res.status.includes("MARKED")) {
+        showPopup(res.reg_no + ": " + res.status, res.color);
+        addLogEntry(res.reg_no + ": " + res.status, 'out');
+        return;
+    }
+
+    // ❌ Ignore all error/info statuses silently
+    const ignoreList = [
+        "Wrong Class",
+        "Already",
+        "IN not marked",
+        "Wait",
+        "SPOOF",
+        "FACE NOT CLEAR",
+        "STEP",
+        "BLINK",
+        "TURN",
+        "Identifying"
+    ];
+
+    if (ignoreList.some(word => res.status?.includes(word))) {
+        return;  // do nothing
+    }
+
+});
+
                 } else {
                     clearOverlay();
                 }

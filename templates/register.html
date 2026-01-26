@@ -117,189 +117,237 @@
             <video id="webcam" autoplay playsinline></video>
             <div class="progress-bar"><div id="progress-fill"></div></div>
             <div id="capture-status" class="status-msg" style="color: var(--primary);">0/2 Poses Captured</div>
+
             <button onclick="closeCamera()" style="margin-top: 15px; color: #d93025; border: none; background: none; font-weight: bold; cursor: pointer;">Cancel</button>
         </div>
     </div>
 
     <canvas id="canvas" style="display:none;"></canvas>
 
-    <script>
-        function syncPassword() { document.getElementById('password').value = document.getElementById('reg_no').value; }
-        function clearSecurityFields() { document.getElementById('reg_no').value = ""; document.getElementById('password').value = ""; }
+   <script>
+function syncPassword() {
+    const reg = document.getElementById("reg_no").value.toUpperCase().replace(/[^A-Z0-9]/g,"");
+    document.getElementById("reg_no").value = reg;
+    document.getElementById("password").value = reg;
+}
 
-        function showError(msg) {
-            const err = document.getElementById('error-card');
-            err.innerText = msg; err.style.display = 'block';
-            clearSecurityFields();
-            setTimeout(() => { err.style.display = 'none'; }, 5000);
-        }
+function clearSecurityFields() {
+    document.getElementById("reg_no").value = "";
+    document.getElementById("password").value = "";
+}
 
-        async function validateAndOpenCamera() {
-            const name = document.getElementById('name').value;
-            const reg_no = document.getElementById('reg_no').value;
-            const phone = document.getElementById('phone').value;
-            const year = document.querySelector('select[name="year"]').value;
-            
-            // అన్ని ఫీల్డ్స్ ని చెక్ చేయడం (Phone Number తో సహా)
-    if (!name || !reg_no || !phone || !year) { 
-        showError("Name, Reg No, Phone, and Year are all required!"); 
-        return; 
+function showError(msg) {
+    const err = document.getElementById("error-card");
+    err.innerText = msg;
+    err.style.display = "block";
+    clearSecurityFields();
+    setTimeout(() => err.style.display = "none", 5000);
+}
+
+async function validateAndOpenCamera() {
+    const name = document.getElementById("name").value;
+    const reg_no = document.getElementById("reg_no").value.toUpperCase();
+    const phone = document.getElementById("phone").value;
+    const year = document.querySelector("select[name='year']").value;
+
+    if (!name || !reg_no || !phone || !year) {
+        showError("Name, Reg No, Phone, and Year are all required!");
+        return;
     }
 
-    // --- కొత్త కండిషన్: Reg No కచ్చితంగా 10 అక్షరాలు ఉండాలి ---
     if (reg_no.length !== 10) {
         showError("Registration Number must be exactly 10 characters long!");
         return;
     }
 
-    // ఫోన్ నంబర్ 10 అంకెలు ఉందో లేదో చెక్ చేయడం (Optional but good)
     if (phone.length !== 10 || isNaN(phone)) {
-        showError(" Please enter a valid 10-digit Phone Number!");
+        showError("Please enter a valid 10-digit Phone Number!");
         return;
     }
-             
-            try {
-                const check = await fetch('/api/check_id', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({reg_no: reg_no})
-                });
-                const res = await check.json();
-                if(res.exists) { showError(" " + reg_no + " already registered!"); return; }
-                openCamera();
-            } catch (e) { console.error(e); }
-        }
 
-        let stream;
-        let poseCount = 0;
-        const poses = ["Turn Face Left", "Turn Face Right"];
+    const check = await fetch("/api/check_id", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ reg_no })
+    });
 
-        async function openCamera() {
-            document.getElementById('camera-overlay').style.display = 'flex';
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-                document.getElementById('webcam').srcObject = stream;
-                poseCount = 0;
-                setTimeout(captureFlow, 2000);
-            } catch (err) { alert("Camera access denied!"); closeCamera(); }
-        }
+    const res = await check.json();
+    if (res.exists) {
+        showError(reg_no + " already registered!");
+        return;
+    }
 
-       
-        async function captureFlow() {
-    if (poseCount >= 2) return;
+    openCamera();
+}
 
-    const instructionEl = document.getElementById('pose-instruction');
-    const statusEl = document.getElementById('capture-status');
-    const progressFill = document.getElementById('progress-fill');
+let stream = null;
+let captureCount = 0;
+let autoTimer = null;
+const TOTAL_CAPTURES = 5;
 
-    // 1. ఇన్‌స్ట్రక్షన్ అప్‌డేట్ చేయడం
-    instructionEl.style.color = "var(--text-dark)";
-    instructionEl.innerText = "Step " + (poseCount + 1) + ": " + poses[poseCount];
+async function openCamera() {
+    document.getElementById("camera-overlay").style.display = "flex";
 
-    const video = document.getElementById('webcam');
-    const canvas = document.getElementById('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
-
-    const imageData = canvas.toDataURL('image/jpeg', 1.0);
+    captureCount = 0;
+    updateUI();
 
     try {
-        const response = await fetch('/api/process_web_pose', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 1280, height: 720 }
+        });
+
+        const video = document.getElementById("webcam");
+        video.srcObject = stream;
+
+        // 🔥 Ensure video is actually playing before auto start
+        video.onloadedmetadata = () => {
+            video.play();
+            startAutoCapture();   // <-- THIS was missing timing guarantee
+        };
+
+    } catch (err) {
+        alert("Camera access denied!");
+        closeCamera();
+    }
+}
+
+
+function updateUI() {
+    const pct = (captureCount / TOTAL_CAPTURES) * 100;
+    document.getElementById("progress-fill").style.width = pct + "%";
+    document.getElementById("capture-status").innerText =
+        captureCount + "/" + TOTAL_CAPTURES + " Captures";
+
+    let msg = "Look straight at camera";
+    if (captureCount >= 1) msg = "Turn head slightly left or right";
+    if (captureCount >= 3) msg = "Keep changing angle slowly";
+    if (captureCount >= TOTAL_CAPTURES) msg = "Finishing enrollment...";
+
+    document.getElementById("pose-instruction").innerText = msg;
+}
+
+
+function startAutoCapture() {
+    if (autoTimer) return;
+    autoTimer = setInterval(captureFace, 1200);
+}
+
+function stopAuto() {
+    if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+    }
+}
+
+async function captureFace() {
+    if (captureCount >= TOTAL_CAPTURES) return;
+
+    const video = document.getElementById("webcam");
+    if (!video.videoWidth) return;
+
+    const canvas = document.getElementById("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+
+    const imageData = canvas.toDataURL("image/jpeg", 0.9);
+
+    try {
+        const response = await fetch("/api/process_web_pose", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
             body: JSON.stringify({
-                name: document.getElementById('name').value,
-                reg_no: document.getElementById('reg_no').value,
-                year: document.querySelector('select[name="year"]').value,
-                phone: document.getElementById('phone').value,
-                branch: document.getElementById('branch').value,
-                section: document.getElementById('section').value,
-                image: imageData,
-                pose: poses[poseCount] 
+                name: document.getElementById("name").value,
+                reg_no: document.getElementById("reg_no").value.toUpperCase(),
+                year: document.querySelector("select[name='year']").value,
+                phone: document.getElementById("phone").value,
+                branch: document.getElementById("branch").value,
+                section: document.getElementById("section").value,
+                image: imageData
             })
         });
 
         const result = await response.json();
 
-        if (result.success) {
-            poseCount++;
-            let progressPercent = (poseCount / 2) * 100;
-
-            // Progress bar update
-            progressFill.style.width = progressPercent + "%";
-            statusEl.innerText = poseCount + "/2 Poses Captured";
-
-            if (result.completed) {
-                // Enrollment success handling
-                setTimeout(() => {
-                    alert("Success: Enrollment Completed Successfully!");
-                    window.location.href = "/faculty_dashboard";
-                }, 300); 
-            } else {
-                // Next pose process
-                setTimeout(captureFlow, 1500); 
-            }
-        } else {
-            // --- Face-Duplication లేదా Pose Error హ్యాండ్లింగ్ ---
-            
-            // 1. మొదటి పోజ్ అప్పుడే డూప్లికేట్ అని తేలితే (Early Detection)
-            if (result.is_duplicate) {
-                closeCamera(); // కెమెరా ఆపేయాలి
-                showError("Registration Failed: " + result.message); // ఎర్రర్ కార్డ్ చూపించాలి
-                alert(result.message); // పాప్-అప్ అలర్ట్
-                return; // ప్రాసెస్ ఇక్కడితో ఆగిపోతుంది
-            }
-
-            // 2. ఒకవేళ సాధారణ 'Already Registered' మెసేజ్ అయితే (Safety check)
-            if (result.message.includes("Already Registered")) {
-                alert(result.message);
-                closeCamera();
-                window.location.reload();
-                return;
-            }
-
-            // 3. పోజ్ తప్పు అయితే (Wrong Pose)
-            instructionEl.innerHTML = `<span style="color:red;">${result.message}</span>`;
-            
-            // యూజర్ మళ్ళీ అదే పోజ్ సరిగ్గా ఇవ్వడానికి 2 సెకన్ల టైమ్
-            setTimeout(captureFlow, 2000);
-        }
-    } catch (e) {
-        console.error("Error:", e);
-        setTimeout(captureFlow, 2000);
-    }
+        if (result.hard_stop) {
+    stopAuto();
+    alert(result.message);
+    closeCamera();
+    return;
 }
 
 
-        function closeCamera() {
-            if(stream) stream.getTracks().forEach(track => track.stop());
-            document.getElementById('camera-overlay').style.display = 'none';
+        if (!result.success) {
+            document.getElementById("pose-instruction").innerText =
+                result.message || "Adjust your face position";
+            return;
         }
 
-    // ట్యాబ్ మారినప్పుడు లేదా మినిమైజ్ చేసినప్పుడు గుర్తించడానికి
-document.addEventListener("visibilitychange", function() {
-    // ఒకవేళ యూజర్ ట్యాబ్ వదిలి వెళ్తే (hidden)
-    if (document.hidden) {
-        const reg_no = document.getElementById('reg_no').value;
-        
-        if (reg_no) {
-            // సర్వర్ లో మెమరీ క్లియర్ చేయడానికి రిక్వెస్ట్
-            fetch('/api/clear_temp_registration', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reg_no: reg_no })
-            });
+        // increment ONLY when backend accepts
+        if (result.count && result.count > captureCount) {
+            captureCount = result.count;
+            updateUI();
+        }
 
-            // ఒకవేళ కెమెరా ఆన్ లో ఉంటే ఆపేసి, పేజీని రీలోడ్ చేయడం
-            if (stream) {
-                alert("Tab switched! For security, registration has been reset.");
-                window.location.reload(); 
-            }
+        if (result.completed) {
+             // 🔥 Force final UI update before closing
+    captureCount = TOTAL_CAPTURES;
+    updateUI();
+
+    stopAuto();
+    autoTimer = null;       // 🔥 FORCE NULL
+    
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+    }
+
+    document.getElementById("camera-overlay").style.display = "none";
+
+    setTimeout(() => {
+        closeCamera();
+        alert("Registration successful!");
+        window.location.href = "/faculty_dashboard";
+    }, 300);
+        }
+
+    } catch (e) {
+        console.error("AUTO CAPTURE ERROR:", e);
+    }
+}
+
+function closeCamera() {
+    stopAuto();
+
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+    }
+
+    document.getElementById("camera-overlay").style.display = "none";
+    captureCount = 0;
+    updateUI();
+}
+
+// Safety: tab switch
+document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+        const reg_no = document.getElementById("reg_no").value;
+        if (reg_no) {
+            fetch("/api/clear_temp_registration", {
+                method: "POST",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({ reg_no: reg_no.toUpperCase() })
+            });
+        }
+
+        if (stream) {
+            alert("Tab switched! Registration reset.");
+            window.location.reload();
         }
     }
- });
-    </script>
+});
+</script>
+
 </body>
 </html>
