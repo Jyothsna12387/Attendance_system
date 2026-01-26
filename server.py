@@ -3,7 +3,6 @@ import subprocess
 import sys
 import os
 import base64
-import mediapipe as mp
 import cv2
 import numpy as np
 import torch
@@ -15,6 +14,12 @@ import pandas as pd
 from io import BytesIO
 import math
 import time
+import mediapipe as mp
+
+try:
+    mp_face_mesh = mp.solutions.face_mesh
+except AttributeError:
+    from mediapipe.python.solutions import face_mesh as mp_face_mesh
 
 
 
