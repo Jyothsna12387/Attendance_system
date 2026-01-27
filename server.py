@@ -117,6 +117,8 @@ def upgrade_faces_table():
 
 upgrade_faces_table()
 
+torch.set_num_threads(1)
+cv2.setNumThreads(0)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -132,6 +134,16 @@ mtcnn = MTCNN(
 )
 
 model = InceptionResnetV1(pretrained='vggface2').eval().to('cpu')
+
+# -----------------------
+# WARMUP ROUTE (ADD HERE 👇)
+# -----------------------
+@app.route("/warmup")
+def warmup():
+    dummy = np.zeros((160,160,3), dtype=np.uint8)
+    pil = Image.fromarray(dummy)
+    _ = mtcnn.detect(pil)
+    return "Warmed"
 
 temp_embeddings = {}
 

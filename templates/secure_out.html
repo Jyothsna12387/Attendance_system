@@ -147,7 +147,7 @@
                 document.getElementById('stopBtn').style.display = 'inline-flex';
                 document.getElementById('scanning-indicator').style.display = 'block';
                 isScanning = true;
-                scanInterval = setInterval(processExit, 1500);
+                scanInterval = setInterval(processExit, 2000);
                 addLogEntry(`Session Started: ${subject}`, 'info');
             } catch (err) { alert("Camera Error: " + err); }
         }

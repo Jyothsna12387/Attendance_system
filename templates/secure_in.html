@@ -220,7 +220,7 @@
                 document.getElementById('scanning-indicator').style.display = 'block';
                 
                 isScanning = true;
-                scanInterval = setInterval(processAttendance, 1000); 
+                scanInterval = setInterval(processAttendance, 2000); 
                 addLogEntry(`Session Started: ${subject}`, 'info');
             } catch (err) { alert("Camera Permission Denied!"); }
         }
