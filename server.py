@@ -16,21 +16,32 @@ import math
 import time
 import mediapipe as mp
 
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+cv2.setNumThreads(0)
+
 try:
     mp_face_mesh = mp.solutions.face_mesh
 except AttributeError:
     from mediapipe.python.solutions import face_mesh as mp_face_mesh
 
-
+# Mediapipe Face Mesh ని సిద్ధం చేయడం
+face_mesh = mp_face_mesh.FaceMesh(
+       static_image_mode=False, 
+       max_num_faces=10, 
+       refine_landmarks=True,
+       min_detection_confidence=0.5,
+       min_tracking_confidence=0.5
+       )
 
 app = Flask(__name__)
 
 app.secret_key = "attendance_secret_key"
 
-
-# Mediapipe Face Mesh ని సిద్ధం చేయడం
-mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=10, refine_landmarks=True)
 
 def calculate_ear(landmarks, eye_indices):
     """కంటి పాయింట్ల ఆధారంగా EAR లెక్కించే లాజిక్"""
@@ -117,8 +128,6 @@ def upgrade_faces_table():
 
 upgrade_faces_table()
 
-torch.set_num_threads(1)
-cv2.setNumThreads(0)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -126,7 +135,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 mtcnn = MTCNN(
     image_size=160,
     margin=12,
-    keep_all=True,
+    keep_all=False,
     thresholds=[0.6, 0.7, 0.7],
     device=torch.device('cpu'),
     post_process=False,
@@ -136,14 +145,20 @@ mtcnn = MTCNN(
 model = InceptionResnetV1(pretrained='vggface2').eval().to('cpu')
 
 # -----------------------
-# WARMUP ROUTE (ADD HERE 👇)
+# WARMUP ROUTE (ADD HERE)
 # -----------------------
 @app.route("/warmup")
 def warmup():
     dummy = np.zeros((160,160,3), dtype=np.uint8)
     pil = Image.fromarray(dummy)
-    _ = mtcnn.detect(pil)
+    face = mtcnn(pil)
+    if face is not None:
+        if face.dim() == 3:
+            face = face.unsqueeze(0)
+        with torch.no_grad():
+            _ = model(face)
     return "Warmed"
+
 
 temp_embeddings = {}
 
@@ -574,6 +589,9 @@ def mark_attendance():
             res = {"box": box.tolist(), "reg_no": "Unknown", "status": "Identifying...", "color": "white"}
 
             face_t = face_tensors[i]
+            # CRASH FIX ONLY – LOGIC NOT TOUCHED
+            if face_t.dim() == 2:
+              face_t = face_t.unsqueeze(0).repeat(3, 1, 1)
             if face_t.dim() == 3:
                 face_t = face_t.unsqueeze(0)
 
