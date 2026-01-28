@@ -13,6 +13,7 @@ torchvision
 facenet-pytorch==2.5.2
 mediapipe==0.10.9
 
+pytz
 
 scikit-learn==1.3.2
 # సర్వర్ డిప్లాయ్మెంట్ కోసం headless వెర్షన్ తప్పనిసరి
