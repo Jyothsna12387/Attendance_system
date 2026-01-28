@@ -125,6 +125,7 @@
     <canvas id="canvas" style="display:none;"></canvas>
 
    <script>
+    fetch("/warmup");
 function syncPassword() {
     const reg = document.getElementById("reg_no").value.toUpperCase().replace(/[^A-Z0-9]/g,"");
     document.getElementById("reg_no").value = reg;

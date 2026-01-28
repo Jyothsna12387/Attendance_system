@@ -14,6 +14,7 @@ import pandas as pd
 from io import BytesIO
 import math
 import mediapipe as mp
+import time
 
 os.environ["GLOG_minloglevel"] = "2"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -266,6 +267,14 @@ def process_web_pose():
         
         if boxes is None:
             return jsonify({"success": False, "message": "Face not found. Move to light."})
+        
+        if len(boxes) != 1:
+           return jsonify({
+        "success": False,
+        "hard_stop": True,
+        "message": "Only ONE person allowed in camera"
+           })
+
 
         # 3. Pose Calculation (Direct from MTCNN Landmarks)
         pts = landmarks[0]
@@ -274,18 +283,39 @@ def process_web_pose():
         eye_dist = pts[1][0] - pts[0][0] + 1e-6
         diff = (nose_x - eye_center_x) / eye_dist
 
-        if abs(diff) < 0.12: pose = "STRAIGHT"
-        elif diff > 0.12: pose = "RIGHT_SIDE"
-        else: pose = "LEFT_SIDE"
+        if abs(diff) < 0.15: pose = "STRAIGHT"
+        elif -0.35 <= diff < -0.15:pose = "SLIGHT_LEFT"
+        elif diff > -0.35: pose = "FULL_SIDE"
+        else: pose = "RIGHT"
 
         # Session
         if reg_no not in temp_embeddings:
-            temp_embeddings[reg_no] = {"embeddings": [], "poses": [], "done": False}
+            now = time.time()
+
+            # cleanup old sessions (VERY IMPORTANT FOR DEPLOY)
+            for k in list(temp_embeddings.keys()):
+               if now - temp_embeddings[k].get("last_seen", now) > 25:
+                  del temp_embeddings[k]
+
+            if reg_no not in temp_embeddings:
+               temp_embeddings[reg_no] = {
+                    "embeddings": [],
+                     "poses": [],
+                     "done": False,
+                     "last_seen": now
+                    }
+
+            temp_embeddings[reg_no]["last_seen"] = now
+          
         store = temp_embeddings[reg_no]
+        store["last_seen"] = time.time()
+
 
         # Duplicate Pose Check
-        if pose in store["poses"] and len(store["poses"]) < 3:
-             return jsonify({"success": False, "message": f"Turn your head more!"})
+        if pose in store["poses"]:
+             return jsonify({"success": False, 
+                             "message": f"{pose} already captured.Turn your head more!"
+                             })
 
         # 4. Generate Embedding
         # Cloud CPU మీద ఇది మాత్రమే టైమ్ తీసుకుంటుంది
