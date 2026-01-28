@@ -251,46 +251,39 @@ def process_web_pose():
         img_base64 = data.get("image").split(",")[1]
 
         REQUIRED_CAPTURES = 4 
-        # 4వ పోజు ఈజీగా అవ్వడానికి దీన్ని 0.18 కి తగ్గించాను (Very Flexible)
-        MIN_DIFF = 0.18        
-        STRICT_MATCH = 0.32    
-
-        # 1. FAST IMAGE DECODE & RESIZE (Speed Hack for Deployment)
+        # ఇమేజ్ సైజ్ ఎంత చిన్నదైతే అంత వేగంగా బాక్సులు వస్తాయి
         img_bytes = base64.b64decode(img_base64)
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         
-        # 320px కి తగ్గిస్తే క్లౌడ్ లో 10 రెట్లు వేగంగా పనిచేస్తుంది
+        # 320px కి తగ్గిస్తే ప్రాసెసింగ్ 0.1 సెకన్లో అయిపోతుంది
         small_frame = cv2.resize(frame, (320, int(frame.shape[0] * (320 / frame.shape[1]))))
         rgb = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(rgb).convert("RGB")
 
-        # 2. LIGHTWEIGHT DETECTION
-        boxes, _ = mtcnn.detect(pil_img)
-        if boxes is None or len(boxes) == 0:
-            return jsonify({"success": False, "message": "Face not detected"})
+        # 1. Detection
+        boxes, _, landmarks = mtcnn.detect(pil_img, landmarks=True) # direct landmarks from mtcnn
+        if boxes is None:
+            return jsonify({"success": False, "message": "Face not detected. Stay in light."})
 
-        # 3. POSE CALCULATION (Nose vs Eye-Center)
-        mesh = face_mesh.process(rgb)
-        if not mesh.multi_face_landmarks:
-            return jsonify({"success": False, "message": "Landmarks blurry"})
+        # 2. Ultra-Simple Pose Logic (Using MTCNN Landmarks - NO FaceMesh needed)
+        # 0: Left Eye, 1: Right Eye, 2: Nose
+        pts = landmarks[0]
+        nose_x = pts[2][0]
+        eye_center_x = (pts[0][0] + pts[1][0]) / 2
+        diff = (nose_x - eye_center_x) / (pts[1][0] - pts[0][0] + 1e-6) # Normalized diff
 
-        fl = mesh.multi_face_landmarks[0]
-        nose_x, l_eye_x, r_eye_x = fl.landmark[1].x, fl.landmark[33].x, fl.landmark[263].x
-        eye_center_x = (l_eye_x + r_eye_x) / 2
-        diff = nose_x - eye_center_x
-
-        # 4వ పోజు కోసం బకెట్స్ ని వైడ్ గా చేశాను
-        if abs(diff) <= 0.008: pose = "STRAIGHT"
-        elif diff > 0.008: pose = "RIGHT_SIDE" # Slight/Full కలిపేసి ఒకే బకెట్ చేశా
+        # Buckets (Very Loose for speed)
+        if abs(diff) < 0.15: pose = "STRAIGHT"
+        elif diff > 0.15: pose = "RIGHT_SIDE"
         else: pose = "LEFT_SIDE"
 
-        # Session Initialization
+        # Initialize Session
         if reg_no not in temp_embeddings:
             temp_embeddings[reg_no] = {"embeddings": [], "poses": [], "done": False}
         store = temp_embeddings[reg_no]
 
-        # 4. EMBEDDING GENERATION (Only if needed)
+        # 3. Duplicate Pose/Angle Block
+        # ఒకే పోజుని వరుసగా తీసుకోకుండా 0.15 డిస్టెన్స్ చెక్
         face_t = mtcnn(pil_img)
         if isinstance(face_t, list): face_t = face_t[0]
         if face_t.dim() == 3: face_t = face_t.unsqueeze(0)
@@ -299,41 +292,23 @@ def process_web_pose():
             emb = model(face_t.to(device)).cpu().numpy().flatten()
             emb = emb / (np.linalg.norm(emb) + 1e-6)
 
-        # 5. DUPLICATE CHECK (Only for the first frame to save CPU)
-        if len(store["embeddings"]) == 0:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("SELECT reg_no, name, embedding FROM faces")
-            for ex_reg, ex_name, ex_emb_blob in cursor.fetchall():
-                if not ex_emb_blob or ex_reg == reg_no: continue
-                ex_emb = np.frombuffer(ex_emb_blob, dtype=np.float32)
-                ex_emb = ex_emb / (np.linalg.norm(ex_emb) + 1e-6)
-                if np.linalg.norm(emb - ex_emb) < STRICT_MATCH:
-                    conn.close()
-                    return jsonify({"success": False, "hard_stop": True, "message": f"Already registered as {ex_name}"})
-            conn.close()
-
-        # 6. DUPLICATE POSE & STILL BLOCK
-        # ఒకే పోజుని 2 సార్లు రాకుండా చూస్తుంది, కానీ 4త్ పోజు కోసం 0.18 డిస్టెన్స్ ని వాడుతుంది
         for prev in store["embeddings"]:
-            if np.linalg.norm(emb - prev) < MIN_DIFF:
-                return jsonify({"success": False, "message": "Change angle slightly"})
+            if np.linalg.norm(emb - prev) < 0.18: # 4వ పోజు కోసం దీన్ని తగ్గించాను
+                return jsonify({"success": False, "message": "Move your head more!"})
 
-        # Store Capture
+        # Capture and Store
         store["embeddings"].append(emb)
         store["poses"].append(pose)
 
-        # 7. COMPLETION LOGIC (4 Poses, Straight Mandatory)
         if len(store["embeddings"]) < REQUIRED_CAPTURES:
             return jsonify({"success": True, "completed": False, "count": len(store["embeddings"]), "message": f"Captured {len(store['embeddings'])}/4"})
 
-        # చివరగా చెక్: కనీసం ఒక్క పోజు అయినా STRAIGHT ఉండాలి
+        # Final Validation
         if "STRAIGHT" not in store["poses"]:
-            store["embeddings"].pop() # లాస్ట్ ది తీసేసి మళ్ళీ ట్రై చేయమంటుంది
-            store["poses"].pop()
-            return jsonify({"success": False, "message": "Straight pose is mandatory!"})
+            store["embeddings"].pop(); store["poses"].pop()
+            return jsonify({"success": False, "message": "Look STRAIGHT once!"})
 
-        # DB SAVE
+        # Database Save
         avg_emb = np.mean(store["embeddings"], axis=0).astype(np.float32)
         conn = sqlite3.connect(DB_PATH); cursor = conn.cursor()
         cursor.execute("INSERT INTO faces (reg_no, name, phone, branch, section, year, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -341,10 +316,10 @@ def process_web_pose():
         conn.commit(); conn.close()
         
         store["done"] = True
-        return jsonify({"success": True, "completed": True, "message": "Registration Success!"})
+        return jsonify({"success": True, "completed": True, "message": "Success!"})
 
     except Exception as e:
-        return jsonify({"success": False, "message": "Processing..."})
+        return jsonify({"success": False, "message": "Keep moving..."})
 
 
 # ==========================
