@@ -182,7 +182,7 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
                     <div id="scan-popup"></div>
                     
                     <div class="video-container">
-                        <video id="webcam" autoplay playsinline></video>
+                        <video id="webcam" autoplay playsinline muted></video>
                         <canvas id="overlay-canvas"></canvas>
                     </div>
 
@@ -239,13 +239,19 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
                 stream = await navigator.mediaDevices.getUserMedia({
   video: {
     facingMode: "user",
-    width: { ideal: 360 },
-    height: { ideal: 360 }
-  }
+    width: { ideal: 640 },
+    height: { ideal: 480 }
+  },
+  audio: false
 });
+
 
                 const video = document.getElementById('webcam');
                 video.srcObject = stream;
+
+                video.onloadedmetadata = () => {
+                  video.play();
+                 };
                 
                 document.getElementById('startBtn').style.display = 'none';
                 document.getElementById('stopBtn').style.display = 'inline-flex';
@@ -258,9 +264,13 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
         }
 
         async function processAttendance() {
+            
     if (!isScanning) return; 
     
     const video = document.getElementById('webcam');
+
+    if (!video.videoWidth) return;
+
     const hiddenCanvas = document.getElementById('hidden-canvas');
     hiddenCanvas.width = video.videoWidth;
     hiddenCanvas.height = video.videoHeight;
@@ -268,7 +278,7 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
 
     const payload = {
         image: hiddenCanvas.toDataURL('image/jpeg', 0.8),
-        mode: 'IN', // ఇక్కడ నేరుగా 'IN' అని మార్చండి
+        mode: 'IN', 
         subject: document.getElementById('subjectInput').value,
         period: document.getElementById('periodInput').value,
         year: document.getElementById('f_year').value,
