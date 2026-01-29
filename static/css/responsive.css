@@ -1,0 +1,61 @@
+/* Hamburger button */
+.hamburger {
+  font-size: 22px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: none;
+}
+
+/* MOBILE VIEW */
+@media (max-width:768px){
+
+  .hamburger {
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    left: -260px;
+    top: 0;
+    width: 260px;
+    height: 100%;
+    background: white;
+    transition: 0.3s;
+    z-index: 1000;
+  }
+
+  .sidebar.active {
+    left: 0;
+  }
+
+  .main-content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+}
+
+/* CAMERA RESPONSIVE */
+@media (max-width: 768px){
+
+  .camera-container,
+  .video-container,
+  #video,
+  video {
+      width: 100% !important;
+      height: auto !important;
+      max-width: 100%;
+  }
+
+  .camera-box{
+      width: 100%;
+      padding: 10px;
+  }
+
+  .controls{
+      flex-direction: column;
+      gap: 10px;
+  }
+
+}
