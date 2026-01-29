@@ -184,7 +184,7 @@ async function validateAndOpenCamera() {
 let stream = null;
 let captureCount = 0;
 let autoTimer = null;
-const TOTAL_CAPTURES = 4;
+const TOTAL_CAPTURES = 20;
 
 async function openCamera() {
     document.getElementById("camera-overlay").style.display = "flex";
@@ -216,23 +216,25 @@ async function openCamera() {
 function updateUI() {
     const pct = (captureCount / TOTAL_CAPTURES) * 100;
     document.getElementById("progress-fill").style.width = pct + "%";
-    document.getElementById("capture-status").innerText =
-        captureCount + "/" + TOTAL_CAPTURES + " Poses Captured";
+    document.getElementById("capture-status").innerText = `Progress: ${captureCount}/${TOTAL_CAPTURES}`;
 
-    let msg = "Look straight at the camera (Main Pose)";
-    
-    // బ్యాకెండ్ మెసేజ్ ని బట్టి కూడా ఇది అప్‌డేట్ అవుతుంది, కానీ ఇక్కడ డెఫాల్ట్ హింట్స్ ఇస్తున్నాం
-    if (captureCount >= 1) msg = "Good! Now turn your head slightly left or right";
-    if (captureCount >= 3) msg = "Almost done! One more different angle";
-    if (captureCount >= TOTAL_CAPTURES) msg = "Finishing enrollment...";
+    // యూజర్ కి అర్థమయ్యే సూచనలు
+    let msg = " Camera capturing 20 samples.\nOnly ONE person should be visible.";
 
-    document.getElementById("pose-instruction").innerText = msg;
+if (captureCount > 10)
+    msg = " Half done! Stay in front of camera.";
+
+if (captureCount > 17)
+    msg = " Almost finished. Hold still!";
+
+document.getElementById("pose-instruction").innerText = msg;
+
 }
 
 
 function startAutoCapture() {
     if (autoTimer) return;
-    autoTimer = setInterval(captureFace, 1200);
+    autoTimer = setInterval(captureFace, 1000);
 }
 
 function stopAuto() {
@@ -287,10 +289,14 @@ async function captureFace() {
         }
 
         // increment ONLY when backend accepts
-        if (result.count && result.count > captureCount) {
-            captureCount = result.count;
-            updateUI();
-        }
+        if (result.count !== undefined) {
+          captureCount = result.count;
+          updateUI();
+   } else {
+    captureCount++;
+    updateUI();
+}
+
 
         if (result.completed) {
              // 🔥 Force final UI update before closing
