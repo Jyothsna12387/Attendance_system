@@ -210,6 +210,9 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
 
     <script>
 
+let lastRecognized = null;
+let lastRecognizedTime = 0;
+
         function utcToIST(timeStr) {
     if (!timeStr || !timeStr.includes(":")) return timeStr;
 
@@ -227,6 +230,8 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
         let stream = null;
         let isScanning = false;
         let scanInterval = null;
+        let lastSent = 0;
+
 
         async function startAttendance() {
             const subject = document.getElementById('subjectInput').value.trim();
@@ -240,11 +245,11 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
   video: {
     facingMode: "user",
     width: { ideal: 640 },
-    height: { ideal: 480 }
+    height: { ideal: 481 },
+    frameRate: { ideal: 30 }
   },
   audio: false
 });
-
 
                 const video = document.getElementById('webcam');
                 video.srcObject = stream;
@@ -258,7 +263,7 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
                 document.getElementById('scanning-indicator').style.display = 'block';
                 
                 isScanning = true;
-                scanInterval = setInterval(processAttendance, 2000); 
+                scanInterval = setInterval(processAttendance, 400); 
                 addLogEntry(`Session Started: ${subject}`, 'info');
             } catch (err) { alert("Camera Permission Denied!"); }
         }
@@ -266,6 +271,10 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
         async function processAttendance() {
             
     if (!isScanning) return; 
+
+    // Skip duplicate frames (Step 4)
+if (Date.now() - lastSent < 500) return;
+lastSent = Date.now();
     
     const video = document.getElementById('webcam');
 
@@ -277,7 +286,7 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
     hiddenCanvas.getContext('2d').drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
     const payload = {
-        image: hiddenCanvas.toDataURL('image/jpeg', 0.8),
+        image: hiddenCanvas.toDataURL('image/jpeg', 0.85),
         mode: 'IN', 
         subject: document.getElementById('subjectInput').value,
         period: document.getElementById('periodInput').value,
@@ -299,7 +308,8 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
             result.results.forEach(res => {
                 // సర్వర్ నుండి వచ్చే స్టేటస్ మెసేజ్ ని బట్టి లాగ్
                 if (res.status.includes("MARKED") || res.status.includes("marked")) {
-
+        lastRecognized = res.reg_no;
+    lastRecognizedTime = Date.now();
     let fixedStatus = res.status;
 
     // Extract time from status and convert to IST
@@ -314,8 +324,17 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
 }
 
                  else if (res.color === "orange" || res.color === "red") {
-                    addLogEntry(`${res.reg_no}: ${res.status}`, 'error');
-                }
+
+  if (
+    res.reg_no === "Unknown" &&
+    Date.now() - lastRecognizedTime < 3000
+  ){
+    return;
+  }
+
+  addLogEntry(`${res.reg_no}: ${res.status}`, 'error');
+}
+
             });
         } else {
             clearOverlay();
@@ -391,8 +410,17 @@ function drawBoxes(results) {
             clearInterval(scanInterval);
             clearOverlay();
             if (stream) stream.getTracks().forEach(t => t.stop());
-            await fetch('/api/toggle_attendance/IN/stop');
-            window.location.reload();
+
+            try {
+   await fetch('/api/toggle_attendance/IN/stop');
+} catch(e){
+   console.log("Stop API skipped");
+}
+
+             // UI reset instead of reload
+          document.getElementById('startBtn').style.display = 'inline-flex';
+          document.getElementById('stopBtn').style.display = 'none';
+          document.getElementById('scanning-indicator').style.display = 'none';
         }
 
 const toggle = document.getElementById("menuToggle");

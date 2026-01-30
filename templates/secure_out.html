@@ -330,8 +330,18 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
             clearInterval(scanInterval);
             clearOverlay();
             if (stream) stream.getTracks().forEach(t => t.stop());
-            await fetch('/api/toggle_attendance/OUT/stop');
-            window.location.reload();
+
+            try {
+   await fetch('/api/toggle_attendance/OUT/stop');
+} catch(e){
+   console.log("Stop API skipped");
+}
+
+
+             // UI reset instead of reload
+            document.getElementById('startBtn').style.display = 'inline-flex';
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('scanning-indicator').style.display = 'none';
         }
 
 const toggle = document.getElementById("menuToggle");
