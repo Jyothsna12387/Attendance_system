@@ -212,6 +212,12 @@ content="width=device-width, initial-scale=1, viewport-fit=cover">
 
 let lastRecognized = null;
 let lastRecognizedTime = 0;
+let stableRegNo = null;
+let stableCount = 0;
+const STABLE_REQUIRED = 2;
+
+let ignoreUnknownUntil = 0;
+
 
         function utcToIST(timeStr) {
     if (!timeStr || !timeStr.includes(":")) return timeStr;
@@ -244,9 +250,9 @@ let lastRecognizedTime = 0;
                 stream = await navigator.mediaDevices.getUserMedia({
   video: {
     facingMode: "user",
-    width: { ideal: 640 },
-    height: { ideal: 481 },
-    frameRate: { ideal: 30 }
+    width: { ideal: 480 },
+    height: { ideal: 360 },
+    frameRate: { ideal: 24 }
   },
   audio: false
 });
@@ -263,7 +269,7 @@ let lastRecognizedTime = 0;
                 document.getElementById('scanning-indicator').style.display = 'block';
                 
                 isScanning = true;
-                scanInterval = setInterval(processAttendance, 400); 
+                scanInterval = setInterval(processAttendance, 500); 
                 addLogEntry(`Session Started: ${subject}`, 'info');
             } catch (err) { alert("Camera Permission Denied!"); }
         }
@@ -286,7 +292,7 @@ lastSent = Date.now();
     hiddenCanvas.getContext('2d').drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
     const payload = {
-        image: hiddenCanvas.toDataURL('image/jpeg', 0.85),
+        image: hiddenCanvas.toDataURL('image/jpeg', 0.75),
         mode: 'IN', 
         subject: document.getElementById('subjectInput').value,
         period: document.getElementById('periodInput').value,
@@ -305,37 +311,54 @@ lastSent = Date.now();
         
         if (result.success && result.results) {
             drawBoxes(result.results);
-            result.results.forEach(res => {
-                // సర్వర్ నుండి వచ్చే స్టేటస్ మెసేజ్ ని బట్టి లాగ్
-                if (res.status.includes("MARKED") || res.status.includes("marked")) {
-        lastRecognized = res.reg_no;
-    lastRecognizedTime = Date.now();
-    let fixedStatus = res.status;
+            // ✅ If any known face exists, ignore unknowns in this frame
+const hasKnown = result.results.some(r => r.reg_no && r.reg_no !== "Unknown");
 
-    // Extract time from status and convert to IST
-    const timeMatch = res.status.match(/\d{2}:\d{2}:\d{2}/);
-    if (timeMatch) {
-        const istTime = utcToIST(timeMatch[0]);
-        fixedStatus = res.status.replace(timeMatch[0], istTime);
+            result.results.forEach(res => {
+
+    // ✅ HANDLE KNOWN FACE
+    if (res.reg_no && res.reg_no !== "Unknown") {
+
+        if (stableRegNo === res.reg_no) {
+            stableCount++;
+        } else {
+            stableRegNo = res.reg_no;
+            stableCount = 1;
+        }
+
+        if (stableCount >= STABLE_REQUIRED) {
+
+            lastRecognized = res.reg_no;
+            lastRecognizedTime = Date.now();
+            ignoreUnknownUntil = Date.now() + 4000;
+
+            let fixedStatus = res.status;
+
+            const timeMatch = res.status.match(/\d{2}:\d{2}:\d{2}/);
+            if (timeMatch) {
+                const istTime = utcToIST(timeMatch[0]);
+                fixedStatus = res.status.replace(timeMatch[0], istTime);
+            }
+
+            addLogEntry(`Present: ${res.reg_no}`, 'success');
+
+            stableCount = 0;
+        }
     }
 
-    addLogEntry(`Present: ${res.reg_no} (${fixedStatus})`, 'success');
-    showPopup(res.reg_no + ": " + fixedStatus, res.color);
+    // ✅ HANDLE UNKNOWN
+    else if (res.reg_no === "Unknown") {
+
+    if (hasKnown) return; // ignore unknown if known exists
+
+    if (Date.now() < ignoreUnknownUntil) return;
+
+    addLogEntry("Unknown Face", 'error');
 }
 
-                 else if (res.color === "orange" || res.color === "red") {
 
-  if (
-    res.reg_no === "Unknown" &&
-    Date.now() - lastRecognizedTime < 3000
-  ){
-    return;
-  }
+});
 
-  addLogEntry(`${res.reg_no}: ${res.status}`, 'error');
-}
-
-            });
         } else {
             clearOverlay();
         }
@@ -421,6 +444,21 @@ function drawBoxes(results) {
           document.getElementById('startBtn').style.display = 'inline-flex';
           document.getElementById('stopBtn').style.display = 'none';
           document.getElementById('scanning-indicator').style.display = 'none';
+
+          // ✅ Clear all fields
+document.getElementById('subjectInput').value = "";
+document.getElementById('f_branch').value = "";
+document.getElementById('f_section').value = "";
+document.getElementById('periodInput').selectedIndex = 0;
+document.getElementById('f_year').selectedIndex = 0;
+
+// reset stability tracking
+stableRegNo = null;
+stableCount = 0;
+lastRecognized = null;
+document.getElementById("webcam").srcObject = null;
+
+
         }
 
 const toggle = document.getElementById("menuToggle");
